@@ -217,6 +217,8 @@ class P03ModeTests(unittest.TestCase):
                 return self
 
         class FakeBrowser:
+            stopped = True
+
             def __init__(self):
                 self.tab = FakeTab()
 
