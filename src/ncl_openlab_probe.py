@@ -50,15 +50,13 @@ PROBE_JS = r"""(() => {
                kind === "room" ? el.classList.contains("space-box1") :
                (el.matches("button, a, [role='button']") || isSelected(el))
   });
-  const dateTiles = Array.from(document.querySelectorAll("div, button, a"))
-    .filter((el) => visible(el) && shownText(el).includes(dateLabel) &&
-      shownText(el).length <= 80).slice(0, 100);
-  // Prefer the actual selected tile over its nested date-number text.
-  const selectedDates = dateTiles.filter((el) => isSelected(el));
-  const dateMatches = selectedDates.length ? selectedDates :
-    dateTiles.filter((el) => !Array.from(el.children).some(
-      (child) => visible(child) && shownText(child).includes(dateLabel) &&
-        shownText(child).length <= 80));
+  // The real date tile is div.date-box (selected tile adds class "selected").
+  // Match the tile itself, never a nested weekday span or generic ancestor.
+  const dateMatches = Array.from(document.querySelectorAll(".date-box"))
+    .filter((el) => {
+      const label = String(el.textContent || "").replace(/\s+/g, " ").trim();
+      return visible(el) && label.startsWith(dateLabel) && label.length <= 80;
+    });
   const roomMatches = Array.from(document.querySelectorAll(".space-box1"))
     .filter((el) => visible(el) && shownText(el).includes(roomLabel) &&
       shownText(el).length <= 80);
