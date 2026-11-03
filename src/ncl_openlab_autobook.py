@@ -296,8 +296,51 @@ async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     return code
 
 
+async def book_one_target(tab, day, priorities, *, auto_submit, mode="music"):
+    """One booking only. Never attempt another when this result is uncertain."""
+    # Choose date and room once; stop on any ambiguous or disabled selector.
+    for phase in ("date", "room"):
+        code = await attempt_stage(tab, phase, day, priorities[0], attempts=8, mode=mode)
+        print(f"{phase}: {code}")
+        if code not in ("CLICKED", "ALREADY_SELECTED"):
+            return "BLOCKED_" + code
+
+    chosen_slot = None
+    for slot in priorities:
+        code = await attempt_stage(tab, "slot", day, slot, attempts=8, mode=mode)
+        print(f"slot {slot}: {code}")
+        if code in ("CLICKED", "ALREADY_SELECTED"):
+            chosen_slot = slot
+            break
+        if code not in ("SLOT_DISABLED", "SLOT_NOT_BOOK_CLASS", "SLOT_NOT_UNIQUE"):
+            return "BLOCKED_" + code
+    if chosen_slot is None:
+        return "NO_BOOKABLE_UI_SLOT"
+
+    code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8, mode=mode)
+    print("next: " + code)
+    if code != "CLICKED":
+        return "BLOCKED_" + code
+
+    # The final click is authorized only by --auto-submit.
+    if not auto_submit:
+        return "PREVIEW_STOPPED_BEFORE_SUBMIT"
+    code = await submit_once_with_pointer(tab, day, chosen_slot, mode=mode, attempts=8)
+    print("submit: " + code)
+    if code != "CLICKED_ONCE":
+        return "BLOCKED_" + code
+
+    # Never retry the actual reservation submit. Inspect response only.
+    for _ in range(12):
+        await asyncio.sleep(0.25)
+        code = await read_action(tab, "success", day, chosen_slot, mode)
+        if code in ("SUCCESS_PAGE_MATCHED", "FAILURE_SHOWN"):
+            return code
+    return "SUBMITTED_SUCCESS_UNVERIFIED"
+
+
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
-                   mode="music", accept_terms=False):
+                   mode="music", accept_terms=False, reserve_two=False):
     import zendriver as uc
 
     browser = await uc.start(headless=False)
@@ -325,45 +368,26 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             if status != "GRID_READY":
                 return "ENTRY_BLOCKED_AT_RELEASE_" + str(status)
 
-        # Choose date and room once; stop on any ambiguous or disabled selector.
-        for phase in ("date", "room"):
-            code = await attempt_stage(tab, phase, day, priorities[0], attempts=8, mode=mode)
-            print(f"{phase}: {code}")
-            if code not in ("CLICKED", "ALREADY_SELECTED"):
-                return "BLOCKED_" + code
-
-        chosen_slot = None
-        for slot in priorities:
-            code = await attempt_stage(tab, "slot", day, slot, attempts=8, mode=mode)
-            print(f"slot {slot}: {code}")
-            if code in ("CLICKED", "ALREADY_SELECTED"):
-                chosen_slot = slot
-                break
-            if code not in ("SLOT_DISABLED", "SLOT_NOT_BOOK_CLASS", "SLOT_NOT_UNIQUE"):
-                return "BLOCKED_" + code
-        if chosen_slot is None:
-            return "NO_BOOKABLE_UI_SLOT"
-
-        code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8, mode=mode)
-        print("next: " + code)
-        if code != "CLICKED":
-            return "BLOCKED_" + code
-
-        # The final click is authorized only by --auto-submit.
-        if not auto_submit:
-            return "PREVIEW_STOPPED_BEFORE_SUBMIT"
-        code = await submit_once_with_pointer(tab, day, chosen_slot, mode=mode, attempts=8)
-        print("submit: " + code)
-        if code != "CLICKED_ONCE":
-            return "BLOCKED_" + code
-
-        # Never retry the actual reservation submit. Inspect response only.
-        for _ in range(12):
-            await asyncio.sleep(0.25)
-            code = await read_action(tab, "success", day, chosen_slot, mode)
-            if code in ("SUCCESS_PAGE_MATCHED", "FAILURE_SHOWN"):
-                return code
-        return "SUBMITTED_SUCCESS_UNVERIFIED"
+        if reserve_two:
+            # Sequential 2 bookings, not a polling loop. Do not move on until
+            # the previous submission is verified on the real success screen.
+            if mode != "music" or len(priorities) != 2 or not auto_submit:
+                return "INVALID_TWO_BOOKING_CONFIGURATION"
+            for index, slot in enumerate(priorities):
+                if index > 0:
+                    tab = await tab.get(NCL_URL)
+                    status = await ensure_date_grid(tab, accept_terms=accept_terms)
+                    if status != "GRID_READY":
+                        return "SECOND_ENTRY_BLOCKED_" + str(status)
+                outcome = await book_one_target(
+                    tab, day, (slot,), auto_submit=True, mode=mode)
+                print(f"booking {index+1}/2 {slot}: {outcome}")
+                if outcome != "SUCCESS_PAGE_MATCHED":
+                    return ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_"
+                            if index == 0 else "SECOND_NOT_CONFIRMED_") + outcome
+            return "TWO_BOOKINGS_CONFIRMED"
+        return await book_one_target(tab, day, priorities,
+                                     auto_submit=auto_submit, mode=mode)
     finally:
         # Keep the real result visible for human verification and screenshots.
         if mode == "p03":
@@ -386,6 +410,8 @@ def main():
                         help="立刻執行，不等預設的 7 日前台北 00:00")
     parser.add_argument("--accept-terms", action="store_true",
                         help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
+    parser.add_argument("--reserve-two", action="store_true",
+                        help="音樂創作室雙時段，兩個指定時段依序真正預約；未確認成功就停止")
     args = parser.parse_args()
     if args.room == "p03":
         if args.slot is None or args.slot not in P03_SLOTS:
@@ -395,6 +421,12 @@ def main():
         if args.slot is not None:
             parser.error("音樂創作室請用 --slots 指定三小時時段")
         priorities = parse_slot_priority(args.slots)
+    if args.reserve_two:
+        if args.room != "music" or len(priorities) != 2:
+            parser.error("--reserve-two 僅支援音樂創作室兩個不同三小時時段")
+        if not args.auto_submit:
+            parser.error("--reserve-two 需要明確指定 --auto-submit")
+        print("雙時段模式：每天最多兩段（含已有預約）；第一筆未確認成功不執行第二筆。")
     room_name = ROOM if args.room == "music" else "個人直播室 P03"
     print(f"目標：{args.date.isoformat()}｜{room_name}｜優先序：{', '.join(priorities)}")
     print("注意：不繞驗證碼、不存帳密、不刷站；只會在此登入階段後操作。")
@@ -403,7 +435,8 @@ def main():
     status = asyncio.run(autobook(args.date, priorities,
                                   auto_submit=args.auto_submit,
                                   now_mode=args.now, mode=args.room,
-                                  accept_terms=args.accept_terms))
+                                  accept_terms=args.accept_terms,
+                                  reserve_two=args.reserve_two))
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 
