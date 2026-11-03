@@ -5,6 +5,7 @@ Observed DOM text is not proof of availability. This module cannot click or
 submit a booking; it only orders inspection results for the requested slots.
 """
 from ncl_openlab_guard import VALID_SLOTS, assess_probe
+from ncl_openlab_status import classify_time_state
 
 
 def parse_slot_priority(raw=None):
@@ -32,6 +33,7 @@ def plan_time_slots(snapshot, target_day, priority=None):
     """
     ordered = parse_slot_priority(priority)
     checks = {slot: assess_probe(snapshot, target_day, slot) for slot in ordered}
+    time_states = {slot: classify_time_state(snapshot, slot, checks[slot]) for slot in ordered}
     observed = [slot for slot in ordered if checks[slot]["status"] == "OBSERVED_ONLY"]
     return {
         "space": "音樂創作室",
@@ -39,6 +41,7 @@ def plan_time_slots(snapshot, target_day, priority=None):
         "first_observed": observed[0] if observed else None,
         "observed_slots": observed,
         "checks": checks,
+        "time_states": time_states,
         "status": "OBSERVED_NOT_VERIFIED" if observed else "BLOCKED",
         "availability_verified": False,
         "can_select_time": False,
