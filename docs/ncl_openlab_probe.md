@@ -65,3 +65,23 @@ python src/ncl_openlab_probe.py --slot 09:00-12:00
 
 **尚未完成：** 需從國圖音樂創作室實際預約畫面的 DOM 確認「已滿 / 可預約」的欄位，
 才能安全地轉為可執行的時段選取器。
+
+## 第四刀：時段介面狀態證據（唯讀）
+
+時段報告新增 `time_states`，每個時段皆附 `state`、`evidence`，而且
+`availability_verified=false`、`can_book=false`。分類：
+
+| state | 意義 |
+|---|---|
+| `DISABLED_UI_HINT` | 目標時段的 DOM 候選元素呈禁用訊號，**不等於正式額滿** |
+| `CANDIDATE_UNVERIFIED` | 找到單一可互動候選元素，**不等於可預約** |
+| `NOT_DISPLAYED` | 沒找到目標時段 |
+| `AMBIGUOUS` | 同一時段有多個候選，禁止猜測 |
+| `UNKNOWN` | 空間、日期、網域、控制狀態等不足以判讀 |
+
+這些都是使用者目前開啟頁面的**視覺介面證據**，不是國圖後端的真實剩餘名額。
+不可將畫面出現時間、可點擊、禁用樣式直接當作成功率或開放名額。
+不會自動點選、送出、重試或搶佔時段。
+
+此刀的離線測試：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`；
+真實可預約狀態需要從官方頁面元素進一步驗證。
