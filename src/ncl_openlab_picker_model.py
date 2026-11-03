@@ -43,7 +43,7 @@ def build_booking_args(*, day, room, slots, immediate=False,
     if any(s not in available_slots(room) for s in selected):
         raise ValueError("時段與房間不符")
     if not auto_submit:
-        raise ValueError("請先確認同意程式實際送出預約")
+        raise ValueError("請先勾選授權程式實際送出預約")
 
     args = ["--room", room, "--date", day.isoformat(),
             "--slots", ",".join(selected), "--auto-submit"]
