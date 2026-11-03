@@ -193,7 +193,7 @@ ENTRY_JS = r"""(() => {
     .filter(visible);
   if (agrees.length === 1) {
     if (!action) return "AGREEMENT_REQUIRED";
-    if (String(agrees[0].innerText || "").replace(/\\s+/g, "") !== "同意Agree")
+    if (String(agrees[0].innerText || "").replace(/\s+/g, "") !== "同意Agree")
       return "AGREEMENT_LABEL_CHANGED";
     agrees[0].click();
     return "AGREEMENT_CLICKED";
