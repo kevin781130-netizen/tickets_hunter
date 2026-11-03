@@ -702,6 +702,88 @@ class AutoBookTests(unittest.TestCase):
                 app.main()
         self.assertEqual(err.exception.code, 2)
 
+    def test_user_manually_closes_browser_for_both_modes(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+        import types
+
+        for mode, slot in (("music", "13:00-16:00"),
+                           ("p03", "13:00-14:00")):
+            prompts = []
+
+            class FakeTab:
+                pass
+
+            class FakeBrowser:
+                def __init__(self):
+                    self.tab = FakeTab()
+
+                async def get(self, url):
+                    return self.tab
+
+                async def stop(self):
+                    raise AssertionError("automation must not close the browser")
+
+            async def fake_start(**kwargs):
+                return FakeBrowser()
+
+            async def ready(*args, **kwargs):
+                return "GRID_READY"
+
+            async def reserve(*args, **kwargs):
+                return "SUCCESS_PAGE_MATCHED"
+
+            async def fake_prompt(fn, prompt):
+                prompts.append(prompt)
+                return ""
+
+            with (patch.dict(sys.modules, {
+                      "zendriver": types.SimpleNamespace(start=fake_start)}),
+                  patch.object(app, "ensure_date_grid", ready),
+                  patch.object(app, "book_one_target", reserve),
+                  patch.object(app.asyncio, "to_thread", fake_prompt)):
+                outcome = asyncio.run(app.autobook(
+                    DAY, (slot,), auto_submit=True,
+                    now_mode=True, mode=mode))
+            self.assertEqual(outcome, "SUCCESS_PAGE_MATCHED")
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("自行關閉瀏覽器後", prompts[-1])
+
+    def test_browser_not_closed_by_program_after_booking_error(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+        import types
+
+        prompts = []
+
+        class FakeBrowser:
+            async def get(self, url):
+                return object()
+
+            async def stop(self):
+                raise AssertionError("browser must stay open after an error")
+
+        async def start(**kwargs):
+            return FakeBrowser()
+
+        async def blocked(*args, **kwargs):
+            return "WRONG_HOST"
+
+        async def prompt(fn, label):
+            prompts.append(label)
+            return ""
+
+        with (patch.dict(sys.modules, {
+                  "zendriver": types.SimpleNamespace(start=start)}),
+              patch.object(app, "ensure_date_grid", blocked),
+              patch.object(app.asyncio, "to_thread", prompt)):
+            with self.assertRaisesRegex(RuntimeError, "DATE_GRID_NOT_READY"):
+                asyncio.run(app.autobook(
+                    DAY, ("13:00-16:00",), auto_submit=True,
+                    now_mode=True, mode="music"))
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("自行關閉瀏覽器後", prompts[-1])
+
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
             def __init__(self):
