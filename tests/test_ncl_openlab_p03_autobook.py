@@ -44,7 +44,9 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn('"2026/11/11"', js)
         self.assertIn('"13:00-14:00"', js)
         self.assertIn('if (!summary()) return result("SUMMARY_MISMATCH")', js)
-        self.assertIn('button.click(); return result("CLICKED_ONCE")', js)
+        self.assertIn('button#gobook.submit-circle-button', js)
+        self.assertIn('READY_FOR_POINTER_CLICK', js)
+        self.assertNotIn('button.click(); return result("CLICKED_ONCE")', js)
 
     def test_vertical_room_label_whitespace_is_normalized(self):
         js = app.action_script("submit", DAY, SLOT, "p03")
@@ -65,8 +67,20 @@ class P03ModeTests(unittest.TestCase):
         js = app.action_script("submit", DAY, SLOT, "p03")
         self.assertIn('window.__nclOneShotSubmit === true', js)
         self.assertIn('window.__nclOneShotSubmit = true', js)
-        self.assertIn('button.click(); return result("CLICKED_ONCE")', js)
+        self.assertIn('button#gobook.submit-circle-button', js)
+        self.assertIn('READY_FOR_POINTER_CLICK', js)
+        self.assertNotIn('button.click(); return result("CLICKED_ONCE")', js)
         self.assertNotIn('location.reload(', js)
+
+    def test_live_gobook_target_matches_exact_date_and_one_hour_slot(self):
+        js = app.action_script("submit", DAY, SLOT, "p03")
+        self.assertIn('"isoDate": "2026-11-11"', js)
+        self.assertIn('button.getAttribute("data-param2") !== task.isoDate', js)
+        self.assertIn('button.getAttribute("data-param5") !== task.slot', js)
+        self.assertIn('SUBMIT_TARGET_MISMATCH', js)
+        self.assertIn('document.elementFromPoint(x, y)', js)
+        self.assertIn('window.__nclOneShotSubmit = true', js)
+        self.assertNotIn('data-param3', js)
 
     def test_p03_success_must_match_date_room_and_slot(self):
         js = app.action_script("success", DAY, SLOT, "p03")
