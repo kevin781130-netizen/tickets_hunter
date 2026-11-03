@@ -77,7 +77,7 @@ def probe_script(day, slot=None):
     return PROBE_JS.replace("__NEEDLES__", values)
 
 
-async def inspect(day, priorities):
+async def inspect(day, priorities, save_evidence=False):
     # Delayed import permits offline stdlib tests without browser dependencies.
     import zendriver as uc
 
@@ -105,6 +105,14 @@ async def inspect(day, priorities):
         evidence = validate_evidence(await tab.evaluate(evidence_script()))
         print(json.dumps({"sanitized_time_dom_evidence": evidence},
                          ensure_ascii=False, indent=2))
+        if save_evidence:
+            from pathlib import Path
+            from ncl_openlab_export import make_capture, save_capture
+
+            root = Path(__file__).resolve().parents[1]
+            capture = make_capture(evidence, day, priorities)
+            saved = save_capture(root, capture)
+            print(f"匿名時段證據已輸出：{saved}")
         from ncl_openlab_slots import plan_time_slots
 
         report = plan_time_slots(result, day, priorities)
@@ -130,6 +138,10 @@ def main():
         "--slots", default=None,
         help="逗號分隔的時段優先順序，例如 17:00-20:00,13:00-16:00",
     )
+    parser.add_argument(
+        "--save-evidence", action="store_true",
+        help="將匿名時段證據存成專案根目錄 ncl_openlab_evidence.json（不覆蓋舊檔）",
+    )
     args = parser.parse_args()
     from ncl_openlab_slots import parse_slot_priority
 
@@ -138,7 +150,7 @@ def main():
     except ValueError as exc:
         parser.error(str(exc))
     print(f"目標：{args.date.isoformat()}｜{ROOM_NAME}｜時段優先序：{', '.join(priorities)}")
-    asyncio.run(inspect(args.date, priorities))
+    asyncio.run(inspect(args.date, priorities, args.save_evidence))
 
 
 if __name__ == "__main__":
