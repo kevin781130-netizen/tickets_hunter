@@ -13,9 +13,8 @@ EVIDENCE_JS = r"""(() => {
   const slots = __SLOTS__;
   const normalize = (s) => String(s || "").replace(/\s/g, "")
       .replace(/[～~–—－至]/g, "-");
-  const roots = Array.from(document.querySelectorAll(
-      "button, label, input, a, td, li, span, div, [role='button'], [role='radio']"
-  )).slice(0, 16000);
+  const roots = Array.from(document.querySelectorAll(".time-box[data-param1]"))
+    .slice(0, 16000);
   const visible = (el) => {
     const box = el.getBoundingClientRect();
     const style = getComputedStyle(el);
@@ -25,7 +24,7 @@ EVIDENCE_JS = r"""(() => {
   const safeTag = (el) => el ? el.tagName.toLowerCase() : null;
   const flags = (el) => {
     const control = el.closest("button, label, input, a, [role='button'], [role='radio']") || el;
-    const section = control.parentElement || control;
+    const section = el; // Isolate each time-box; never infer from sibling slots.
     const text = String(section.innerText || "").slice(0, 240);
     const mixed = slots.filter((s) => normalize(text).includes(normalize(s))).length > 1;
     const statuses = ["已滿", "額滿", "名額已滿", "不可預約", "可預約",
@@ -45,15 +44,16 @@ EVIDENCE_JS = r"""(() => {
       aria_selected: control.getAttribute("aria-selected") === "true",
       checked: control.checked === true || control.getAttribute("aria-checked") === "true",
       mixed_slot_context: mixed,
-      status_hints: mixed ? [] : statuses.filter((s) => text.includes(s))
+      status_hints: mixed ? [] : statuses.filter((s) => text.includes(s)),
+      class_hints: ["time-box", "disabled", "reserving", "selected",
+                    "is-disabled", "unavailable"].filter((c) => el.classList.contains(c))
     };
   };
   const matches = (slot) => roots.filter((el) =>
-      visible(el) && normalize(el.innerText || el.value || "") === normalize(slot) &&
-      !Array.from(el.children).some((child) =>
-        visible(child) && normalize(child.innerText || "") === normalize(slot)));
-  const roomNodes = roots.filter((el) => visible(el) &&
-      normalize(el.innerText || "") === "音樂創作室").length;
+      visible(el) && el.getAttribute("data-param1") === slot);
+  const roomNodes = Array.from(document.querySelectorAll(".space-box1"))
+    .filter((el) => visible(el) &&
+      String(el.innerText || "").includes("音樂創作室")).length;
   return {
     host: location.hostname,
     room_label_candidates: Math.min(roomNodes, 100),
@@ -123,6 +123,15 @@ def validate_evidence(data):
                 "tag", "control_tag", "role", "disabled_ui_hint",
                 "aria_selected", "checked", "mixed_slot_context")})
             clean[-1]["status_hints"] = sorted(set(hints))
+            class_hints = n.get("class_hints")
+            if class_hints is not None:
+                allowed_classes = {"time-box", "disabled", "reserving", "selected",
+                                   "is-disabled", "unavailable"}
+                if (not isinstance(class_hints, list)
+                        or any(not isinstance(c, str) or c not in allowed_classes
+                               for c in class_hints)):
+                    raise ValueError("Unexpected CSS class")
+                clean[-1]["class_hints"] = sorted(set(class_hints))
         result["times"].append({
             "slot": slot, "count": count, "nodes": clean,
             "truncated": row["truncated"]
