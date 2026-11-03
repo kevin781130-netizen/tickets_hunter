@@ -181,6 +181,7 @@ def seconds_until_release(day, now=None):
 # One-shot lobby navigation from actual NCL entry markup. Consent is opt-in.
 ENTRY_JS = r"""(() => {
   const action = __ALLOW_AGREE__;
+  const mode = __ROOM_MODE__;
   const visible = (el) => {
     const b = el.getBoundingClientRect();
     const style = getComputedStyle(el);
@@ -189,6 +190,21 @@ ENTRY_JS = r"""(() => {
   };
   if (location.hostname !== "spms.ncl.edu.tw") return "WRONG_HOST";
   if (document.querySelectorAll(".date-box").length > 0) return "GRID_READY";
+  // Live NCL flow: the multimedia status overview is NOT the booking date grid.
+  // Clicking the exact room category opens /NLT/co/media_discussion.jsp (7 dates).
+  if (location.pathname === "/NLT/co/multimedia.jsp") {
+    const roomName = mode === "p03" ? "個人直播室" : "音樂創作室";
+    const labels = Array.from(document.querySelectorAll(".lab-item .lab-name[data-zh]"))
+      .filter(el => visible(el) && el.getAttribute("data-zh") === roomName);
+    if (labels.length !== 1) return "STATUS_ROOM_NOT_UNIQUE";
+    const tile = labels[0].closest(".lab-item");
+    if (!tile || !visible(tile) || tile.classList.contains("disabled") ||
+        tile.classList.contains("unavailable") ||
+        tile.getAttribute("aria-disabled") === "true")
+      return "STATUS_ROOM_NOT_ACTIONABLE";
+    tile.click();
+    return "STATUS_ROOM_OPENED";
+  }
   const agrees = Array.from(document.querySelectorAll("button#agree-btn.button.agree"))
     .filter(visible);
   if (agrees.length === 1) {
@@ -206,19 +222,23 @@ ENTRY_JS = r"""(() => {
 })()"""
 
 
-async def ensure_date_grid(tab, *, accept_terms=False):
-    """At most five local DOM checks; never bypass or infer consent."""
+async def ensure_date_grid(tab, *, accept_terms=False, mode="music"):
+    """Navigate visible site UI only, without inventing consent or retrying submit."""
+    if mode not in ROOM_MODES:
+        return "INVALID_ROOM_MODE"
     if not await at_official_host(tab):
         return "WRONG_HOST"
+    script = (ENTRY_JS
+              .replace("__ALLOW_AGREE__", "true" if accept_terms else "false")
+              .replace("__ROOM_MODE__", json.dumps(mode)))
     code = "ENTRY_NOT_FOUND_OR_AMBIGUOUS"
-    for _ in range(5):
-        code = await tab.evaluate(
-            ENTRY_JS.replace("__ALLOW_AGREE__", "true" if accept_terms else "false"))
+    for _ in range(12):
+        code = await tab.evaluate(script)
         if code == "GRID_READY":
             return code
-        if code not in ("MULTIMEDIA_OPENED", "AGREEMENT_CLICKED"):
+        if code not in ("MULTIMEDIA_OPENED", "AGREEMENT_CLICKED", "STATUS_ROOM_OPENED"):
             return code
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.25)
     return code
 
 
@@ -348,11 +368,11 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
         tab = await browser.get(NCL_URL)
         print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
         await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
-        status = await ensure_date_grid(tab, accept_terms=accept_terms)
+        status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
         if status == "AGREEMENT_REQUIRED":
             print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
             await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
-            status = await ensure_date_grid(tab, accept_terms=False)
+            status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
         if status != "GRID_READY":
             raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
         if not now_mode:
@@ -364,7 +384,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                 await asyncio.sleep(remaining)
             await tab.reload(ignore_cache=False)
             await tab.wait_for_ready_state(until="interactive", timeout=10)
-            status = await ensure_date_grid(tab, accept_terms=accept_terms)
+            status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
             if status != "GRID_READY":
                 return "ENTRY_BLOCKED_AT_RELEASE_" + str(status)
 
@@ -376,7 +396,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             for index, slot in enumerate(priorities):
                 if index > 0:
                     tab = await tab.get(NCL_URL)
-                    status = await ensure_date_grid(tab, accept_terms=accept_terms)
+                    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
                     if status != "GRID_READY":
                         return "SECOND_ENTRY_BLOCKED_" + str(status)
                 outcome = await book_one_target(
