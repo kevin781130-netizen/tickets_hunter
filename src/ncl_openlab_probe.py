@@ -20,38 +20,60 @@ SLOTS = ("09:00-12:00", "13:00-16:00", "17:00-20:00")
 
 # Only reads visible DOM nodes. It never triggers click, submit, or refresh.
 PROBE_JS = r"""(() => {
+  // The real NCL layout has a selected date tile, .space-box1 for a room,
+  // and .time-box[data-param1] for time slots. No generic text-wide controls.
   const needles = __NEEDLES__;
-  const all = Array.from(document.querySelectorAll("*")).slice(0, 20000);
+  const dateLabel = needles[0];
+  const roomLabel = needles[1];
+  const times = needles.slice(2);
   const shownText = (el) => String(el.innerText || "").replace(/\s+/g, " ").trim();
   const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 &&
+      style.visibility !== "hidden" && style.display !== "none";
   };
-  const locate = (needle) => {
-    const matching = all.filter((el) => {
-      const s = shownText(el);
-      return visible(el) && s.includes(needle) && s.length <= 100;
-    });
-    const smallest = matching.filter((el) =>
-      !Array.from(el.children).some((child) => {
-        const s = shownText(child);
-        return s.includes(needle) && s.length <= 100 && visible(child);
-      })
-    );
-    return smallest.slice(0, 8).map((el) => ({
-      tag: el.tagName.toLowerCase(),
-      clickable: Boolean(el.closest("button, a, [role='button'], label, input[type='radio'], input[type='checkbox']")),
-      disabled: Boolean(el.closest("[disabled], [aria-disabled='true'], .disabled, .is-disabled")),
-      selected: el.getAttribute("aria-selected") === "true" ||
-                el.getAttribute("aria-pressed") === "true",
-      sample: shownText(el).slice(0, 60)
-    }));
-  };
-  return {
-    host: location.hostname,
-    path: location.pathname,
-    results: Object.fromEntries(needles.map((n) => [n, locate(n)]))
-  };
+  const isSelected = (el) => el.classList.contains("selected") ||
+    el.getAttribute("aria-selected") === "true" ||
+    el.getAttribute("aria-pressed") === "true";
+  const isDisabled = (el) => el.classList.contains("disabled") ||
+    el.classList.contains("is-disabled") ||
+    el.classList.contains("unavailable") ||
+    el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
+  const candidate = (el, needle, kind) => ({
+    tag: el.tagName.toLowerCase(),
+    sample: needle, // Never emit arbitrary DOM text or personal details.
+    selected: isSelected(el),
+    disabled: isDisabled(el),
+    clickable: kind === "slot" ? el.classList.contains("time-box") :
+               kind === "room" ? el.classList.contains("space-box1") :
+               (el.matches("button, a, [role='button']") || isSelected(el))
+  });
+  const dateTiles = Array.from(document.querySelectorAll("div, button, a"))
+    .filter((el) => visible(el) && shownText(el).includes(dateLabel) &&
+      shownText(el).length <= 80).slice(0, 100);
+  // Prefer the actual selected tile over its nested date-number text.
+  const selectedDates = dateTiles.filter((el) => isSelected(el));
+  const dateMatches = selectedDates.length ? selectedDates :
+    dateTiles.filter((el) => !Array.from(el.children).some(
+      (child) => visible(child) && shownText(child).includes(dateLabel) &&
+        shownText(child).length <= 80));
+  const roomMatches = Array.from(document.querySelectorAll(".space-box1"))
+    .filter((el) => visible(el) && shownText(el).includes(roomLabel) &&
+      shownText(el).length <= 80);
+  const results = {};
+  results[dateLabel] = dateMatches.slice(0, 8)
+    .map((el) => candidate(el, dateLabel, "date"));
+  results[roomLabel] = roomMatches.slice(0, 8)
+    .map((el) => candidate(el, roomLabel, "room"));
+  for (const time of times) {
+    const matches = Array.from(document.querySelectorAll(".time-box[data-param1]"))
+      .filter((el) => visible(el) &&
+        el.getAttribute("data-param1") === time);
+    results[time] = matches.slice(0, 8)
+      .map((el) => candidate(el, time, "slot"));
+  }
+  return {host: location.hostname, source: "ncl_structured_dom_v1", results};
 })()"""
 
 
