@@ -108,6 +108,21 @@ class PickerModelTests(unittest.TestCase):
             source.index('viewport.pack(side="top", fill="both", expand=True)'),
         )
 
+    def test_immediate_mode_is_explicitly_real_booking_not_a_mock(self):
+        source = (SRC / "ncl_openlab_picker.py").read_text(encoding="utf-8")
+        self.assertIn("立即正式預約（不等午夜；會真的送出；預設關閉）", source)
+        self.assertIn("立即正式預約（真實送出；無午夜重試）", source)
+        self.assertNotIn("立即測試（不等午夜", source)
+
+    def test_release_script_cannot_launch_reservation(self):
+        script = (SRC.parent / "verify_ncl_release.ps1").read_text(encoding="utf-8")
+        self.assertIn("NCL_RELEASE_GATE_PASS", script)
+        self.assertIn("py_compile", script)
+        self.assertIn("unittest discover", script)
+        self.assertIn("feat/ncl-openlab-booking", script)
+        self.assertNotIn("Start-Process", script)
+        self.assertNotIn("--auto-submit", script)
+
     def test_gui_source_parses_without_opening_window(self):
         source = (SRC / "ncl_openlab_picker.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
