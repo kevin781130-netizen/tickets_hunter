@@ -37,6 +37,6 @@ def classify_time_state(snapshot, slot, assessment):
     if isinstance(nodes, list) and len(nodes) == 1:
         node = nodes[0]
         if isinstance(node, dict) and node.get("disabled") is True:
-            return {**outcome, "state": "CONTROL_DISABLED",
-                    "evidence": "EXPLICIT_DISABLED_CONTROL"}
+            return {**outcome, "state": "DISABLED_UI_HINT",
+                    "evidence": "DOM_DISABLED_SELECTOR_OR_CLASS"}
     return {**outcome, "evidence": "DISABLED_STATE_NOT_VERIFIED"}
