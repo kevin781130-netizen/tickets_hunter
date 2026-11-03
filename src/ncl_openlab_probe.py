@@ -96,7 +96,15 @@ async def inspect(day, priorities):
         result = await tab.evaluate(probe_script(day))
         if not isinstance(result, dict) or result.get("host") != NCL_HOST:
             raise RuntimeError("DOM probe did not return a verified result")
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # Print only allowlisted target counts; no raw page text or account data.
+        labels = probe_needles(day)
+        counts = {label: len(result.get("results", {}).get(label, [])) for label in labels}
+        print(json.dumps({"visible_target_counts": counts}, ensure_ascii=False, indent=2))
+        from ncl_openlab_evidence import evidence_script, validate_evidence
+
+        evidence = validate_evidence(await tab.evaluate(evidence_script()))
+        print(json.dumps({"sanitized_time_dom_evidence": evidence},
+                         ensure_ascii=False, indent=2))
         from ncl_openlab_slots import plan_time_slots
 
         report = plan_time_slots(result, day, priorities)
