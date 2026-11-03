@@ -15,7 +15,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from ncl_openlab_picker_model import (
-    ROOM_CHOICES, TAIPEI, available_slots, build_booking_args, release_datetime,
+    ROOM_CHOICES, TAIPEI, available_slots, build_booking_args,
+    console_python, release_datetime,
 )
 
 BURGUNDY = "#731d20"
@@ -256,7 +257,7 @@ class BookingPicker(tk.Tk):
             return
 
         entry = Path(__file__).resolve().with_name("ncl_openlab_autobook.py")
-        command = [sys.executable, str(entry), *argv]
+        command = [console_python(sys.executable), str(entry), *argv]
         try:
             if os.name == "nt":
                 subprocess.Popen(command, cwd=str(entry.parent.parent),
