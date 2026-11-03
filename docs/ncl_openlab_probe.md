@@ -29,9 +29,17 @@ python src/ncl_openlab_probe.py --date 2026-11-11 --slot 09:00-12:00
 
 ```powershell
 python -m unittest discover -s tests -p "test_ncl_openlab_probe.py"
-python -m py_compile src/ncl_openlab_probe.py
+python -m py_compile src/ncl_openlab_probe.py src/ncl_openlab_guard.py
 ```
 
-## 下一刀的進入條件
+## 第二刀：防誤選檢查（已加入）
+
+- 新增 `src/ncl_openlab_guard.py`：只接受正確國圖網域、指定日期、**音樂創作室**、指定時段
+- 每個目標必須唯一、文字吻合、顯示未禁用、可互動或已選取；缺少、重複、禁用皆 `BLOCKED`
+- 即使三項全部吻合，只能得到 `OBSERVED_ONLY`，不能據此判定空位、點擊或送出
+- 原偵測器會輸出 `dry_run_assessment`；不產生任何預約操作
+- 新增十個防誤選離線案例：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`
+
+## 後續開發的進入條件
 
 取得實際 DOM 偵測結果後，才能建立精準且 fail-closed 的日期/空間/時段選擇邏輯。未確認網站服務條款及 DOM 前，不做自動送出、CAPTCHA 繞過或高頻重試。
