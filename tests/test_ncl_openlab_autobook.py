@@ -372,6 +372,7 @@ class AutoBookTests(unittest.TestCase):
                 return self
 
         class FakeBrowser:
+            stopped = True
             def __init__(self):
                 self.tab = FakeTab()
             async def get(self, _):
@@ -415,6 +416,7 @@ class AutoBookTests(unittest.TestCase):
                 return self
 
         class FakeBrowser:
+            stopped = True
             def __init__(self):
                 self.tab = FakeTab()
             async def get(self, _):
@@ -715,6 +717,7 @@ class AutoBookTests(unittest.TestCase):
                 pass
 
             class FakeBrowser:
+                stopped = True
                 def __init__(self):
                     self.tab = FakeTab()
 
@@ -746,8 +749,8 @@ class AutoBookTests(unittest.TestCase):
                     DAY, (slot,), auto_submit=True,
                     now_mode=True, mode=mode))
             self.assertEqual(outcome, "SUCCESS_PAGE_MATCHED")
-            self.assertEqual(len(prompts), 2)
-            self.assertIn("自行關閉瀏覽器後", prompts[-1])
+            self.assertEqual(len(prompts), 1)
+            self.assertIn("登入及進入頁面後", prompts[0])
 
     def test_browser_not_closed_by_program_after_booking_error(self):
         import ncl_openlab_autobook as app
@@ -757,6 +760,7 @@ class AutoBookTests(unittest.TestCase):
         prompts = []
 
         class FakeBrowser:
+            stopped = True
             async def get(self, url):
                 return object()
 
@@ -781,8 +785,58 @@ class AutoBookTests(unittest.TestCase):
                 asyncio.run(app.autobook(
                     DAY, ("13:00-16:00",), auto_submit=True,
                     now_mode=True, mode="music"))
-        self.assertEqual(len(prompts), 2)
-        self.assertIn("自行關閉瀏覽器後", prompts[-1])
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("登入及進入頁面後", prompts[0])
+
+    def test_result_browser_is_kept_open_without_enter_until_user_closes_it(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+        import types
+
+        checks = []
+        sleeps = []
+
+        class Page:
+            type_ = "page"
+
+        class Browser:
+            stopped = False
+
+            async def _get_targets(self):
+                checks.append("poll")
+                # The page is still open for two checks. The user then
+                # closes all browser windows and three checks see no pages.
+                if len(checks) <= 2:
+                    return [Page()]
+                return []
+
+            async def stop(self):
+                raise AssertionError("booking must never close the browser")
+
+        async def nap(seconds):
+            sleeps.append(seconds)
+
+        with patch.object(app.asyncio, "sleep", nap):
+            asyncio.run(app.wait_until_browser_manually_closed(
+                Browser(), interval=0.2))
+        self.assertEqual(len(checks), 5)
+        self.assertEqual(sleeps, [0.2] * 4)
+
+    def test_result_browser_already_closed_returns_immediately(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        class Browser:
+            stopped = True
+
+            async def _get_targets(self):
+                raise AssertionError("no browser should be polled after closure")
+
+        async def nap(seconds):
+            raise AssertionError("no wait after Chrome already closed")
+
+        with patch.object(app.asyncio, "sleep", nap):
+            asyncio.run(app.wait_until_browser_manually_closed(Browser()))
 
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
