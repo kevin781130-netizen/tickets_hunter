@@ -92,8 +92,8 @@ ACTION_JS = r"""(() => {
   // Final confirmation page may no longer have .date-box and .space-box1.
   // Compare all three target facts in the rendered visible page, not form values.
   const matchingRoomSummary = (display) => task.mode === "p03"
-    ? display.includes("個人直播室") && /\bP03\b/.test(display)
-    : display.includes(task.room);
+    ? display.replace(/\s+/g, "").includes("個人直播室") && /\bP03\b/.test(display)
+    : display.replace(/\s+/g, "").includes(task.room);
   const summary = () => {
     const display = String(document.body.innerText || "");
     return display.includes(task.fullDate) &&
