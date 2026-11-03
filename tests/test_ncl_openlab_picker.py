@@ -9,7 +9,8 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 from ncl_openlab_picker_model import (
-    ROOM_CHOICES, available_slots, build_booking_args, release_datetime,
+    ROOM_CHOICES, available_slots, build_booking_args,
+    console_python, release_datetime,
 )
 
 
@@ -80,6 +81,16 @@ class PickerModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build_booking_args(day=invalid, room="music",
                                    slots=["13:00-16:00"], auto_submit=True)
+
+    def test_gui_spawn_uses_console_python_not_pythonw(self):
+        self.assertEqual(
+            console_python(r"C:\\Users\\Frankie\\ncl-openlab\\.venv\\Scripts\\pythonw.exe"),
+            r"C:\\Users\\Frankie\\ncl-openlab\\.venv\\Scripts\\python.exe",
+        )
+        self.assertEqual(
+            console_python(r"C:\\Python311\\python.exe"),
+            r"C:\\Python311\\python.exe",
+        )
 
     def test_gui_source_parses_without_opening_window(self):
         source = (SRC / "ncl_openlab_picker.py").read_text(encoding="utf-8")
