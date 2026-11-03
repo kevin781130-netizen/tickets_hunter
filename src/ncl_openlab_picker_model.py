@@ -54,3 +54,13 @@ def build_booking_args(*, day, room, slots, immediate=False,
     if accept_terms:
         args.append("--accept-terms")
     return args
+
+
+
+def console_python(executable):
+    """pythonw.exe has no interactive stdin; spawn console python.exe instead."""
+    from pathlib import Path
+    interpreter = Path(executable)
+    if interpreter.name.lower() == "pythonw.exe":
+        return str(interpreter.with_name("python.exe"))
+    return str(interpreter)
