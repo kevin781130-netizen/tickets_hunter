@@ -125,3 +125,27 @@ python src/ncl_openlab_probe.py --save-evidence
 
 離線單元測試：
 `python -m unittest discover -s tests -p "test_ncl_openlab_export.py"`。
+
+## 第七刀：依實際國圖 HTML 變更唯讀辨識器
+
+使用者在國圖畫面的 DevTools 確認（僅供 DOM 契約比對）：
+
+- 空間選項：\`div.space-box1\`；已選為 \`selected\`。側邊「音樂創作室」標題不算空間選項。
+- 時段選項：\`div.time-box[data-param1="HH:MM-HH:MM"]\`；\`data-param1\` 是實際時段文字。
+- 觀察到已被占用的時段包含 \`class="time-box disabled reserving"\`。
+- 觀察到仍可選的另一房間時段只有 \`class="time-box"\`，但這不是後端確認的空位。
+- 日期、空間必須在結構化掃描中呈 \`selected\`，否則拒絕計入有效目標。
+- 不使用背景色或 \`data-param3="true"\` 作為可預約判據。
+
+\`ncl_openlab_probe.py\` 現在用結構化 DOM 選擇器找目標日期、\`space-box1\`
+與精確 \`data-param1\` 時段；\`ncl_openlab_evidence.py\` 擷取固定白名單
+\`class_hints\`（time-box、disabled、reserving 等），不記錄整頁文字與私人資料。
+另加 \`tests/test_ncl_openlab_real_dom_contract.py\` 離線回歸案例。
+
+**注意**：音樂創作室的三小時時段仍是唯一正式目標；「個人直播室」的一小時時段
+僅作為外觀與 HTML 契約對照。禁用、可點選與預約成功是不同概念。
+整個工具仍為單次唯讀檢查，不會點時段、不會送出、不會查驗證碼或輪詢。
+
+更新本機開發分支後，用
+\`.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_ncl_openlab_*.py"\`
+離線複驗。需再到國圖相同選時畫面完成一次真實 DOM 驗證，才能宣稱實機通過。
