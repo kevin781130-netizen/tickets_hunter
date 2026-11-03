@@ -102,17 +102,22 @@ class AutoBookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release_time(datetime(2026, 11, 12))
 
-    def test_single_element_click_does_not_repeat_when_uncertain(self):
+    def test_single_keyboard_submit_does_not_repeat_when_uncertain(self):
         import ncl_openlab_autobook as module
+        import types
+        from unittest.mock import patch
 
         class FakeElement:
             def __init__(self, tab):
                 self.tab = tab
 
-            async def click(self):
-                self.tab.events.append("element.click")
+            async def send_keys(self, key):
+                self.tab.events.append(("send_keys", key))
                 if self.tab.failure:
-                    raise RuntimeError("uncertain response after click")
+                    raise RuntimeError("uncertain response after key dispatch")
+
+            async def click(self):
+                raise AssertionError("JS element.click must not be used")
 
         class FakeTab:
             def __init__(self, failure=False, missing=False):
@@ -121,16 +126,18 @@ class AutoBookTests(unittest.TestCase):
                 self.events = []
 
             async def evaluate(self, code):
-                self.events.append("evaluate")
                 if code == "location.href":
                     return "https://spms.ncl.edu.tw/confirmation"
+                if code == module.SUBMIT_PROBE_ARM_JS:
+                    return "ARMED"
+                if code == module.SUBMIT_PROBE_READ_JS:
+                    return {"click": True, "trusted": True, "ajax": True}
+                self.events.append("preflight")
                 return {"code": "READY_FOR_POINTER_CLICK", "x": 200.0, "y": 350.0}
 
             async def select(self, selector, timeout=10):
                 self.events.append(("select", selector, timeout))
-                if self.missing:
-                    return None
-                return FakeElement(self)
+                return None if self.missing else FakeElement(self)
 
             async def mouse_click(self, x, y):
                 raise AssertionError("raw coordinate click must not be used")
@@ -139,19 +146,38 @@ class AutoBookTests(unittest.TestCase):
             return await module.submit_once_with_pointer(
                 tab, DAY, SLOT, mode="music", attempts=8)
 
-        tab = FakeTab()
-        self.assertEqual(asyncio.run(one(tab)), "CLICKED_ONCE")
-        self.assertEqual(tab.events.count("element.click"), 1)
-        self.assertEqual([e for e in tab.events if isinstance(e, tuple)],
-                         [("select", "button#gobook.submit-circle-button", 1)])
-        bad = FakeTab(failure=True)
-        self.assertEqual(asyncio.run(one(bad)),
-                         "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
-        self.assertEqual(bad.events.count("element.click"), 1)
-        missing = FakeTab(missing=True)
-        self.assertEqual(asyncio.run(one(missing)),
-                         "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
-        self.assertNotIn("element.click", missing.events)
+        stub = types.ModuleType("zendriver.core.keys")
+        stub.SpecialKeys = types.SimpleNamespace(SPACE="SPACE_KEY")
+        with patch.dict(sys.modules, {"zendriver.core.keys": stub}):
+            tab = FakeTab()
+            self.assertEqual(asyncio.run(one(tab)), "CLICKED_ONCE")
+            self.assertEqual(tab.events.count(("send_keys", "SPACE_KEY")), 1)
+            self.assertEqual([e for e in tab.events if
+                              isinstance(e, tuple) and e[0] == "select"],
+                             [("select", "button#gobook.submit-circle-button", 1)])
+            bad = FakeTab(failure=True)
+            self.assertEqual(asyncio.run(one(bad)),
+                             "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
+            self.assertEqual(bad.events.count(("send_keys", "SPACE_KEY")), 1)
+            missing = FakeTab(missing=True)
+            self.assertEqual(asyncio.run(one(missing)),
+                             "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
+            self.assertEqual(len([e for e in missing.events if
+                                  isinstance(e, tuple) and e[0] == "send_keys"]), 0)
+
+    def test_submission_probe_observes_without_replaying_request(self):
+        import ncl_openlab_autobook as module
+        arm = module.SUBMIT_PROBE_ARM_JS
+        read = module.SUBMIT_PROBE_READ_JS
+        self.assertIn('b.addEventListener("click"', arm)
+        self.assertIn('e.isTrusted === true', arm)
+        self.assertIn('"ajaxSend.nclSubmitProbe"', arm)
+        self.assertIn("step2_media[.]jsp", arm)
+        self.assertIn("p.click", read)
+        self.assertIn("p.ajax", read)
+        for forbidden in ("$.post(", "fetch(", "document.cookie",
+                          "params.email", "localStorage"):
+            self.assertNotIn(forbidden, arm + read)
 
     def test_bad_pointer_payload_fails_closed(self):
         import ncl_openlab_autobook as module
