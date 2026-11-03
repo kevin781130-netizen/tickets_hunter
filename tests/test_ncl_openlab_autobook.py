@@ -195,6 +195,140 @@ class AutoBookTests(unittest.TestCase):
         self.assertIn('window.__nclOneShotSubmit = true', js)
         self.assertNotIn('button.click(); return result("CLICKED_ONCE")', js)
 
+    def test_two_booking_option_requires_two_music_slots_and_authorization(self):
+        import contextlib
+        from io import StringIO
+        from unittest.mock import patch
+        import ncl_openlab_autobook as app
+
+        with patch.object(sys, "argv", [
+            "app", "--date", "2026-11-12", "--reserve-two",
+            "--slots", "13:00-16:00,17:00-20:00"
+        ]), contextlib.redirect_stderr(StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                app.main()
+        self.assertEqual(ctx.exception.code, 2)
+
+        with patch.object(sys, "argv", [
+            "app", "--date", "2026-11-12", "--room", "p03",
+            "--slot", "13:00-14:00", "--auto-submit", "--reserve-two"
+        ]), contextlib.redirect_stderr(StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                app.main()
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_two_booking_cli_passes_exact_order_and_consent(self):
+        import contextlib
+        from io import StringIO
+        from unittest.mock import patch
+        import ncl_openlab_autobook as app
+
+        with (patch.object(sys, "argv", [
+            "app", "--date", "2026-11-12", "--slots",
+            "13:00-16:00,17:00-20:00", "--auto-submit",
+            "--reserve-two", "--accept-terms", "--now"
+        ]),
+              patch.object(app.asyncio, "run", return_value="NOT_RUN") as runner,
+              contextlib.redirect_stdout(StringIO())):
+            app.main()
+        coro = runner.call_args.args[0]
+        try:
+            vals = coro.cr_frame.f_locals
+            self.assertEqual(vals["priorities"], ("13:00-16:00", "17:00-20:00"))
+            self.assertTrue(vals["reserve_two"])
+            self.assertTrue(vals["accept_terms"])
+            self.assertTrue(vals["auto_submit"])
+            self.assertEqual(vals["mode"], "music")
+        finally:
+            coro.close()
+
+    def test_first_booking_failure_stops_second_without_new_navigation(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+        import types
+
+        class FakeTab:
+            def __init__(self):
+                self.navigation_count = 0
+            async def get(self, _):
+                self.navigation_count += 1
+                return self
+
+        class FakeBrowser:
+            def __init__(self):
+                self.tab = FakeTab()
+            async def get(self, _):
+                return self.tab
+            async def stop(self):
+                pass
+
+        fb = FakeBrowser()
+        async def fake_start(**kwargs):
+            return fb
+        async def ready(*args, **kwargs):
+            return "GRID_READY"
+        async def fake_prompt(*args, **kwargs):
+            return ""
+        calls = []
+        async def book(tab, day, priorities, **kwargs):
+            calls.append(priorities)
+            return "SUBMITTED_SUCCESS_UNVERIFIED"
+
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(start=fake_start)}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", fake_prompt),
+              patch.object(app, "book_one_target", book)):
+            outcome = asyncio.run(app.autobook(
+                date(2026,11,12), ("13:00-16:00", "17:00-20:00"),
+                auto_submit=True, now_mode=True, mode="music", reserve_two=True))
+        self.assertIn("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED", outcome)
+        self.assertEqual(calls, [("13:00-16:00",)])
+        self.assertEqual(fb.tab.navigation_count, 0)
+
+    def test_verified_first_booking_may_progress_to_second_once(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+        import types
+
+        class FakeTab:
+            def __init__(self):
+                self.navigation_count = 0
+            async def get(self, _):
+                self.navigation_count += 1
+                return self
+
+        class FakeBrowser:
+            def __init__(self):
+                self.tab = FakeTab()
+            async def get(self, _):
+                return self.tab
+            async def stop(self):
+                pass
+
+        fb = FakeBrowser()
+        async def fake_start(**kwargs):
+            return fb
+        async def ready(*args, **kwargs):
+            return "GRID_READY"
+        async def fake_prompt(*args, **kwargs):
+            return ""
+        calls = []
+        async def book(tab, day, priorities, **kwargs):
+            calls.append(priorities)
+            return "SUCCESS_PAGE_MATCHED"
+
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(start=fake_start)}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", fake_prompt),
+              patch.object(app, "book_one_target", book)):
+            outcome = asyncio.run(app.autobook(
+                date(2026,11,12), ("13:00-16:00", "17:00-20:00"),
+                auto_submit=True, now_mode=True, mode="music",
+                reserve_two=True, accept_terms=True))
+        self.assertEqual(outcome, "TWO_BOOKINGS_CONFIRMED")
+        self.assertEqual(calls, [("13:00-16:00",), ("17:00-20:00",)])
+        self.assertEqual(fb.tab.navigation_count, 1)
+
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
             def __init__(self):
