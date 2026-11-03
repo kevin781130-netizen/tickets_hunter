@@ -35,8 +35,8 @@ class BookingPicker(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("國圖 OPEN LAB｜預約日期與時段")
-        self.geometry("820x720")
-        self.minsize(730, 660)
+        self.geometry("850x690")
+        self.minsize(690, 480)
         self.configure(bg=PAPER)
 
         now = datetime.now(TAIPEI)
@@ -54,8 +54,41 @@ class BookingPicker(tk.Tk):
         self._refresh_summary()
 
     def _build(self):
-        main = tk.Frame(self, bg=PAPER, padx=25, pady=20)
-        main.pack(fill="both", expand=True)
+        # The bottom controls remain visible even on 125–200% Windows display
+        # scaling and low-height screens. Only the upper configuration scrolls.
+        footer = tk.Frame(self, bg=PAPER, padx=18, pady=9)
+        footer.pack(side="bottom", fill="x")
+        self.summary = tk.Label(footer, bg=PAPER, fg=DARK, justify="left",
+                                anchor="w", font=("Microsoft JhengHei UI", 10))
+        self.summary.pack(fill="x", pady=(0, 5))
+        tk.Button(footer, text="確認設定並開啟預約瀏覽器", bg=BURGUNDY, fg="white",
+                  activebackground=GOLD, activeforeground="white",
+                  pady=9, font=("Microsoft JhengHei UI", 12, "bold"),
+                  command=self._launch).pack(fill="x")
+        tk.Label(footer, bg=PAPER, fg="#756f6a", anchor="w",
+                 text="勾選兩段＝預約兩筆；第一筆未確認成功就停止。").pack(
+                     anchor="w", pady=(4, 0))
+
+        viewport = tk.Frame(self, bg=PAPER)
+        viewport.pack(side="top", fill="both", expand=True)
+        self.content_canvas = tk.Canvas(
+            viewport, bg=PAPER, highlightthickness=0, borderwidth=0)
+        scroll = ttk.Scrollbar(
+            viewport, orient="vertical", command=self.content_canvas.yview)
+        self.content_canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.content_canvas.pack(side="left", fill="both", expand=True)
+
+        main = tk.Frame(self.content_canvas, bg=PAPER, padx=18, pady=12)
+        window = self.content_canvas.create_window(
+            (0, 0), window=main, anchor="nw")
+        main.bind("<Configure>", lambda event:
+                  self.content_canvas.configure(
+                      scrollregion=self.content_canvas.bbox("all")))
+        self.content_canvas.bind("<Configure>", lambda event:
+                  self.content_canvas.itemconfigure(window, width=event.width))
+        self.content_canvas.bind_all("<MouseWheel>", self._scroll_wheel)
+
         tk.Label(main, text="國圖 OPEN LAB 預約選擇器", bg=PAPER, fg=BURGUNDY,
                  font=("Microsoft JhengHei UI", 19, "bold")).pack(anchor="w")
         tk.Label(main, text="選日期 → 選房間 → 勾選 1–2 個時段 → 確認送出",
@@ -113,17 +146,10 @@ class BookingPicker(tk.Tk):
         ttk.Checkbutton(settings, text="我明確授權正式送出預約（必須勾選）",
                         variable=self.authorize_submit).pack(anchor="w", pady=(2, 0))
 
-        self.summary = tk.Label(main, bg=PAPER, fg=DARK, justify="left",
-                                anchor="w", wraplength=685,
-                                font=("Microsoft JhengHei UI", 10))
-        self.summary.pack(fill="x", pady=(0, 9))
-        tk.Button(main, text="確認設定並開啟預約瀏覽器", bg=BURGUNDY, fg="white",
-                  activebackground=GOLD, activeforeground="white",
-                  padx=18, pady=10, font=("Microsoft JhengHei UI", 12, "bold"),
-                  command=self._launch).pack(fill="x")
-        tk.Label(main, bg=PAPER, fg="#756f6a",
-                 text="瀏覽器需手動登入。選兩個時段會送出兩次預約；第一筆未確認成功就停止。",
-                 wraplength=685).pack(anchor="w", pady=(8, 0))
+    def _scroll_wheel(self, event):
+        if event.delta:
+            self.content_canvas.yview_scroll(
+                -1 if event.delta > 0 else 1, "units")
 
     def _change_month(self, offset):
         self.view_year, self.view_month = month_shift(
@@ -195,7 +221,7 @@ class BookingPicker(tk.Tk):
         for index, slot in enumerate(choices):
             priority = (self.slots.index(slot) + 1) if slot in self.slots else None
             button = tk.Button(
-                self.slot_frame, text=f"{'✓ ' + str(priority) + '｜' if priority else '□ '}{slot}",
+                self.slot_frame, text=f"{'第' + str(priority) + '筆 ✓ ' if priority else '選取  '}{slot}",
                 bg=BURGUNDY if priority else "#f2edeb",
                 fg="white" if priority else DARK,
                 relief="sunken" if priority else "ridge",
