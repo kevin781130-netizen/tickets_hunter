@@ -627,6 +627,25 @@ class AutoBookTests(unittest.TestCase):
             self.assertEqual(actual, result)
             self.assertEqual(calls, ["attempt"])
 
+    def test_release_mode_uses_short_dom_probes(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        calls = []
+
+        async def probe(tab, phase, day, slot, *, attempts, mode):
+            calls.append((phase, attempts))
+            return "DATE_NOT_UNIQUE"
+
+        with patch.object(app, "attempt_stage", probe):
+            fast = asyncio.run(app.book_one_target(
+                object(), DAY, (SLOT,), auto_submit=False, fast_probe=True))
+            normal = asyncio.run(app.book_one_target(
+                object(), DAY, (SLOT,), auto_submit=False, fast_probe=False))
+        self.assertEqual(fast, "BLOCKED_DATE_NOT_UNIQUE")
+        self.assertEqual(normal, "BLOCKED_DATE_NOT_UNIQUE")
+        self.assertEqual(calls, [("date", 2), ("date", 8)])
+
     def test_retry_window_zero_stops_without_refresh(self):
         import ncl_openlab_autobook as app
         from unittest.mock import patch
