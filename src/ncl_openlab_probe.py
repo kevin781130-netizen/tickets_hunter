@@ -40,8 +40,8 @@ PROBE_JS = r"""(() => {
     );
     return smallest.slice(0, 8).map((el) => ({
       tag: el.tagName.toLowerCase(),
-      clickable: Boolean(el.closest("button, a, [role='button']")),
-      disabled: el.matches(":disabled, [aria-disabled='true']"),
+      clickable: Boolean(el.closest("button, a, [role='button'], label, input[type='radio'], input[type='checkbox']")),
+      disabled: Boolean(el.closest("[disabled], [aria-disabled='true'], .disabled, .is-disabled")),
       selected: el.getAttribute("aria-selected") === "true" ||
                 el.getAttribute("aria-pressed") === "true",
       sample: shownText(el).slice(0, 60)
@@ -96,6 +96,13 @@ async def inspect(day, slot):
         if not isinstance(result, dict) or result.get("host") != NCL_HOST:
             raise RuntimeError("DOM probe did not return a verified result")
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        from ncl_openlab_guard import assess_probe
+
+        checks = {}
+        for requested_slot in (slot,) if slot else SLOTS:
+            checks[requested_slot] = assess_probe(result, day, requested_slot)
+        print(json.dumps({"dry_run_assessment": checks}, ensure_ascii=False, indent=2))
+        print("僅供選位辨識：OBSERVED_ONLY 不是空位或可預約證明。")
         print("唯讀檢查完成：沒有點選、提交預約或自動重新整理。")
     finally:
         await browser.stop()
