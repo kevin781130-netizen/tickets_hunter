@@ -46,6 +46,11 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn('if (!summary()) return result("SUMMARY_MISMATCH")', js)
         self.assertIn('button.click(); return result("CLICKED_ONCE")', js)
 
+    def test_vertical_room_label_whitespace_is_normalized(self):
+        js = app.action_script("submit", DAY, SLOT, "p03")
+        self.assertIn('display.replace(/\\s+/g, "").includes("個人直播室")', js)
+        self.assertIn(r"/\bP03\b/", js)
+
     def test_p03_success_must_match_date_room_and_slot(self):
         js = app.action_script("success", DAY, SLOT, "p03")
         self.assertIn('matchingRoomSummary(display)', js)
