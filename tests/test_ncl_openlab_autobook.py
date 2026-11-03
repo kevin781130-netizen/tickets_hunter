@@ -446,6 +446,72 @@ class AutoBookTests(unittest.TestCase):
         self.assertEqual(calls, [("13:00-16:00",), ("17:00-20:00",)])
         self.assertEqual(fb.tab.navigation_count, 1)
 
+    def test_checkout_waits_until_ready_before_one_submit(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        events = []
+
+        class Tab:
+            async def evaluate(self, js):
+                events.append("checkout_ready")
+                return True
+
+        async def stage(tab, phase, *args, **kwargs):
+            events.append(phase)
+            return "CLICKED"
+
+        async def send(tab, *args, **kwargs):
+            events.append("submit")
+            return "CLICKED_ONCE"
+
+        async def result(tab, *args, **kwargs):
+            return "SUCCESS_PAGE_MATCHED"
+
+        async def nap(seconds):
+            events.append(("sleep", seconds))
+
+        with (patch.object(app, "attempt_stage", stage),
+              patch.object(app, "submit_once_with_pointer", send),
+              patch.object(app, "read_action", result),
+              patch.object(app.asyncio, "sleep", nap)):
+            status = asyncio.run(app.book_one_target(
+                Tab(), DAY, (SLOT,), auto_submit=True))
+        self.assertEqual(status, "SUCCESS_PAGE_MATCHED")
+        self.assertIn(("sleep", 1.0), events)
+        self.assertLess(events.index(("sleep", 1.0)), events.index("submit"))
+        self.assertEqual(events.count("submit"), 1)
+
+    def test_checkout_not_ready_never_submits(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        class Tab:
+            def __init__(self):
+                self.checks = 0
+
+            async def evaluate(self, js):
+                self.checks += 1
+                return False
+
+        async def stage(tab, phase, *args, **kwargs):
+            return "CLICKED"
+
+        async def send(*args, **kwargs):
+            raise AssertionError("no final submit when checkout is not ready")
+
+        async def nap(_):
+            return None
+
+        tab = Tab()
+        with (patch.object(app, "attempt_stage", stage),
+              patch.object(app, "submit_once_with_pointer", send),
+              patch.object(app.asyncio, "sleep", nap)):
+            status = asyncio.run(app.book_one_target(
+                tab, DAY, (SLOT,), auto_submit=True))
+        self.assertEqual(status, "BLOCKED_CHECKOUT_NOT_READY")
+        self.assertEqual(tab.checks, 20)
+
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
             def __init__(self):
