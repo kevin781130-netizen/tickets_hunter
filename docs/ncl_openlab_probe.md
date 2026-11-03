@@ -453,3 +453,25 @@ P03（而非其他直播室）或音樂創作室、日期、時段才能進下�
 
 顯示 `submit method: ZENDRIVER_ELEMENT_CLICK` 以區分舊版實機紀錄。
 僅在實機成功畫面或官方「我的紀錄」有新紀錄時才算預約成功。
+
+## 第十九刀：原生鍵盤啟動 + 唯讀 click/AJAX 診斷
+
+2026-11-04 使用者手動按 `#gobook` 後，Network 確認
+`step2_media.jsp` 回應 HTTP 200，並開啟 `success_media.jsp`，
+官方「我的紀錄」確實出現 P03 預約。**只有手動預約獲證實。**
+
+相對地，前版的 `ZENDRIVER_ELEMENT_CLICK` 雖印出
+`CLICKED_ONCE`，仍停在預約確認頁，使用者確認沒有預約紀錄。
+後續以 Element.click 送出成功是**未驗證的說法**，不能當成通過。
+
+Zendriver Python 官方文件指出 `Element.click()` 執行 JS
+`el.click()`；`Element.send_keys(SpecialKeys.SPACE)` 則在目標
+聚焦後由 CDP 發送原生鍵盤 keydown/keyup。此版以**唯一一次 Space
+原生鍵啟動**代替 JS 點擊和座標點擊，不做後備第二次提交。
+
+送出前的 JS 只核對日期、房名、時段、按鈕、畫面狀態。
+另在按鈕加入被動 `click` 觀察器，及 jQuery `ajaxSend`
+觀察器，終端只回傳 `click/trusted/ajax` 三個布林指標：
+不讀取 Email、個資、POST body，也不攔截或重送請求。
+實際成功依舊要用國圖成功頁及「我的紀錄」驗證。
+目前本修正**尚未經實機驗收**；目前若已有同時段預約，禁止重測送出。
