@@ -58,6 +58,24 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn('display.includes(task.slot)', js)
         self.assertIn('display.includes("預約成功")', js)
 
+    def test_p03_normal_time_box_can_be_clicked_before_book_class(self):
+        js = app.action_script("slot", DAY, SLOT, "p03")
+        # Previously P03 stopped at SLOT_NOT_BOOK_CLASS before clicking.
+        self.assertIn('task.mode !== "p03" && !tile.classList.contains("book")', js)
+        self.assertIn('if (chosen(tile, "slot")) return result("ALREADY_SELECTED")', js)
+        self.assertIn('tile.click(); return result("CLICKED")', js)
+
+    def test_p03_book_is_selected_state_for_next_step(self):
+        js = app.action_script("next", DAY, SLOT, "p03")
+        self.assertIn('kind === "slot" && el.classList.contains("book")', js)
+        self.assertIn('!chosen(slotTile(), "slot")', js)
+        self.assertIn('button.click(); return result("CLICKED")', js)
+
+    def test_music_still_requires_book_class_for_slot(self):
+        js = app.action_script("slot", DAY, "13:00-16:00", "music")
+        self.assertIn('task.mode !== "p03" && !tile.classList.contains("book")', js)
+        self.assertIn('SLOT_NOT_BOOK_CLASS', js)
+
     def test_p03_disabled_never_allowed(self):
         js = app.action_script("slot", DAY, SLOT, "p03")
         self.assertIn('if (disabled(tile)) return result("SLOT_DISABLED")', js)
