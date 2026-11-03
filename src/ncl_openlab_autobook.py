@@ -119,7 +119,7 @@ ACTION_JS = r"""(() => {
     const buttons = from("button#gobook.submit-circle-button");
     const button = exactOne(buttons);
     if (!button || disabled(button) ||
-        cleanText(button).replace(/\\s+/g, "") !== "預約")
+        cleanText(button).replace(/\s+/g, "") !== "預約")
       return result("SUBMIT_NOT_ACTIONABLE");
     // These are the public target date and slot, NOT the dynamic session IDs.
     if (button.getAttribute("data-param2") !== task.isoDate ||
