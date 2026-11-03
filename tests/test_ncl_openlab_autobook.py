@@ -150,6 +150,51 @@ class AutoBookTests(unittest.TestCase):
                 FakeTab(), DAY, SLOT, attempts=1)),
             "INVALID_SUBMIT_COORDINATES")
 
+    def test_entry_selectors_and_consent_are_explicit(self):
+        import ncl_openlab_autobook as module
+        js = module.ENTRY_JS
+        self.assertIn(".art-image.multimedia", js)
+        self.assertIn("button#agree-btn.button.agree", js)
+        self.assertIn('"AGREEMENT_REQUIRED"', js)
+        self.assertIn('if (!action) return "AGREEMENT_REQUIRED"', js)
+        self.assertIn('if (location.hostname !== "spms.ncl.edu.tw")', js)
+        self.assertNotIn("document.cookie", js)
+        self.assertNotIn("fetch(", js)
+
+    def test_entry_does_not_agree_without_opt_in(self):
+        import ncl_openlab_autobook as module
+        from unittest.mock import patch
+
+        class FakeTab:
+            def __init__(self):
+                self.scripts = []
+            async def evaluate(self, script):
+                self.scripts.append(script)
+                return "AGREEMENT_REQUIRED"
+
+        async def yes(_):
+            return True
+
+        with patch.object(module, "at_official_host", yes):
+            tab = FakeTab()
+            status = asyncio.run(module.ensure_date_grid(tab))
+            self.assertEqual(status, "AGREEMENT_REQUIRED")
+            self.assertEqual(len(tab.scripts), 1)
+            self.assertIn("const action = false;", tab.scripts[0])
+
+            another = FakeTab()
+            status = asyncio.run(module.ensure_date_grid(another, accept_terms=True))
+            self.assertEqual(status, "AGREEMENT_REQUIRED")
+            self.assertIn("const action = true;", another.scripts[0])
+
+    def test_native_click_requires_one_exact_gobook(self):
+        from ncl_openlab_autobook import action_script
+        js = action_script("submit", DAY, SLOT)
+        self.assertIn('from("button#gobook.submit-circle-button")', js)
+        self.assertIn('"SUBMIT_BUTTON_OCCLUDED"', js)
+        self.assertIn('window.__nclOneShotSubmit = true', js)
+        self.assertNotIn('button.click(); return result("CLICKED_ONCE")', js)
+
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
             def __init__(self):
