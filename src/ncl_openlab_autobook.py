@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""One-shot, opt-in NCL music room booking through the visible browser UI.
+"""One-shot, opt-in NCL music-room or P03 booking through the visible browser UI.
 
 Manual login required. One target date, one room, at most one final submit.
 No API replay, CAPTCHA solving, rapid page refresh or continuous polling.
@@ -17,6 +17,8 @@ from ncl_openlab_slots import parse_slot_priority
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
 PHASES = ("date", "room", "slot", "next", "submit", "success")
+P03_SLOTS = tuple(f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 20))
+ROOM_MODES = ("music", "p03")
 ACTION_JS = r"""(() => {
   const task = __TASK__;
   const cleanText = (el) => String(el.innerText || "").replace(/\s+/g, " ").trim();
@@ -37,8 +39,11 @@ ACTION_JS = r"""(() => {
   const dateTile = () => exactOne(from(".date-box")
     .filter(el => cleanText(el).startsWith(task.shortDate)));
   const roomTile = () => exactOne(from(".space-box1")
-    .filter(el => cleanText(el).includes(task.room)));
-  const slotTile = () => exactOne(from(".time-box2[data-param1]")
+    .filter(el => task.mode === "p03"
+      ? /^P03(?:\\s|$)/.test(cleanText(el))
+      : cleanText(el).includes(task.room)));
+  const slotTile = () => exactOne(from(task.mode === "p03"
+    ? ".time-box[data-param1]" : ".time-box2[data-param1]")
     .filter(el => el.getAttribute("data-param1") === task.slot));
   const chosen = (el) => el && el.classList.contains("selected");
   const result = (code) => ({code}); // No page content, identifiers or account data.
@@ -86,10 +91,13 @@ ACTION_JS = r"""(() => {
   }
   // Final confirmation page may no longer have .date-box and .space-box1.
   // Compare all three target facts in the rendered visible page, not form values.
+  const matchingRoomSummary = (display) => task.mode === "p03"
+    ? display.includes("個人直播室") && /\\bP03\\b/.test(display)
+    : display.includes(task.room);
   const summary = () => {
     const display = String(document.body.innerText || "");
     return display.includes(task.fullDate) &&
-      display.includes(task.room) && display.includes(task.slot);
+      matchingRoomSummary(display) && display.includes(task.slot);
   };
   if (task.phase === "submit") {
     if (window.__nclOneShotSubmit === true) return result("ALREADY_SUBMITTED");
@@ -104,7 +112,7 @@ ACTION_JS = r"""(() => {
     if (display.includes("預約成功") &&
         display.includes(task.fullDate) &&
         display.includes(task.slot) &&
-        display.includes(task.room)) return result("SUCCESS_PAGE_MATCHED");
+        matchingRoomSummary(display)) return result("SUCCESS_PAGE_MATCHED");
     if (display.includes("預約失敗")) return result("FAILURE_SHOWN");
     return result("SUCCESS_NOT_VERIFIED");
   }
@@ -112,13 +120,17 @@ ACTION_JS = r"""(() => {
 })()"""
 
 
-def action_script(phase, day, slot):
-    if phase not in PHASES:
-        raise ValueError("invalid phase")
-    if not isinstance(day, date) or isinstance(day, datetime) or slot not in VALID_SLOTS:
-        raise ValueError("invalid music-room target")
+def action_script(phase, day, slot, mode="music"):
+    if phase not in PHASES or mode not in ROOM_MODES:
+        raise ValueError("invalid phase or room mode")
+    allowed = VALID_SLOTS if mode == "music" else P03_SLOTS
+    if (not isinstance(day, date) or isinstance(day, datetime)
+            or slot not in allowed):
+        raise ValueError("invalid slot for requested room")
+    room = ROOM if mode == "music" else "個人直播室"
     data = {"phase": phase, "shortDate": day.strftime("%m/%d"),
-            "fullDate": day.strftime("%Y/%m/%d"), "room": ROOM, "slot": slot}
+            "fullDate": day.strftime("%Y/%m/%d"), "room": room,
+            "slot": slot, "mode": mode}
     return ACTION_JS.replace("__TASK__", json.dumps(data, ensure_ascii=False))
 
 
@@ -142,10 +154,10 @@ async def at_official_host(tab):
     return urlsplit(url).hostname == NCL_HOST
 
 
-async def read_action(tab, phase, day, slot):
+async def read_action(tab, phase, day, slot, mode="music"):
     if not await at_official_host(tab):
         raise RuntimeError("NOT_OFFICIAL_NCL_HOST")
-    response = await tab.evaluate(action_script(phase, day, slot))
+    response = await tab.evaluate(action_script(phase, day, slot, mode))
     if not isinstance(response, dict) or response.get("code") not in {
         "WRONG_HOST", "DATE_NOT_UNIQUE", "DATE_DISABLED", "ALREADY_SELECTED",
         "CLICKED", "DATE_NOT_SELECTED", "ROOM_NOT_UNIQUE", "ROOM_DISABLED",
@@ -159,7 +171,7 @@ async def read_action(tab, phase, day, slot):
     return response["code"]
 
 
-async def attempt_stage(tab, phase, day, slot, attempts=6):
+async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     """Only reread the local DOM; no extra HTTP requests or page refreshes."""
     transient = {
         "date": {"DATE_NOT_UNIQUE"},
@@ -169,14 +181,16 @@ async def attempt_stage(tab, phase, day, slot, attempts=6):
         "submit": {"SUBMIT_NOT_ACTIONABLE", "SUMMARY_MISMATCH"},
     }.get(phase, set())
     for i in range(attempts):
-        code = await read_action(tab, phase, day, slot)
+        # Keep the original music-mode call contract for existing tests.
+        code = (await read_action(tab, phase, day, slot) if mode == "music"
+                else await read_action(tab, phase, day, slot, mode))
         if code not in transient or i == attempts - 1:
             return code
         await asyncio.sleep(0.2)
     return code
 
 
-async def autobook(day, priorities, *, auto_submit, now_mode=False):
+async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"):
     import zendriver as uc
 
     browser = await uc.start(headless=False)
@@ -201,14 +215,14 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
 
         # Choose date and room once; stop on any ambiguous or disabled selector.
         for phase in ("date", "room"):
-            code = await attempt_stage(tab, phase, day, priorities[0], attempts=8)
+            code = await attempt_stage(tab, phase, day, priorities[0], attempts=8, mode=mode)
             print(f"{phase}: {code}")
             if code not in ("CLICKED", "ALREADY_SELECTED"):
                 return "BLOCKED_" + code
 
         chosen_slot = None
         for slot in priorities:
-            code = await attempt_stage(tab, "slot", day, slot, attempts=8)
+            code = await attempt_stage(tab, "slot", day, slot, attempts=8, mode=mode)
             print(f"slot {slot}: {code}")
             if code in ("CLICKED", "ALREADY_SELECTED"):
                 chosen_slot = slot
@@ -218,7 +232,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
         if chosen_slot is None:
             return "NO_BOOKABLE_UI_SLOT"
 
-        code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8)
+        code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8, mode=mode)
         print("next: " + code)
         if code != "CLICKED":
             return "BLOCKED_" + code
@@ -226,7 +240,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
         # The final click is authorized only by --auto-submit.
         if not auto_submit:
             return "PREVIEW_STOPPED_BEFORE_SUBMIT"
-        code = await attempt_stage(tab, "submit", day, chosen_slot, attempts=8)
+        code = await attempt_stage(tab, "submit", day, chosen_slot, attempts=8, mode=mode)
         print("submit: " + code)
         if code != "CLICKED_ONCE":
             return "BLOCKED_" + code
@@ -234,7 +248,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
         # Never retry the actual reservation submit. Inspect response only.
         for _ in range(12):
             await asyncio.sleep(0.25)
-            code = await read_action(tab, "success", day, chosen_slot)
+            code = await read_action(tab, "success", day, chosen_slot, mode)
             if code in ("SUCCESS_PAGE_MATCHED", "FAILURE_SHOWN"):
                 return code
         return "SUBMITTED_SUCCESS_UNVERIFIED"
@@ -243,23 +257,35 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="國圖音樂創作室單次自動預約")
+    parser = argparse.ArgumentParser(description="國圖音樂創作室／P03 單次自動預約")
     parser.add_argument("--date", required=True, type=date.fromisoformat,
                         help="目標日期 YYYY-MM-DD（必填）")
-    parser.add_argument("--slots", default=None,
-                        help="三小時時段優先序，逗號分隔")
+    parser.add_argument("--room", choices=ROOM_MODES, default="music",
+                        help="music 音樂創作室（預設）或 p03 個人直播室測試")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--slots", default=None, help="音樂創作室三小時時段優先序")
+    target.add_argument("--slot", default=None, help="P03 唯一的一小時測試時段")
     parser.add_argument("--auto-submit", action="store_true",
                         help="明確允許程式在核對日期、房間、時段後點一次最終「預約」")
     parser.add_argument("--now", action="store_true",
                         help="立刻執行，不等預設的 7 日前台北 00:00")
     args = parser.parse_args()
-    priorities = parse_slot_priority(args.slots)
-    print(f"目標：{args.date.isoformat()}｜{ROOM}｜優先序：{', '.join(priorities)}")
+    if args.room == "p03":
+        if args.slot is None or args.slot not in P03_SLOTS:
+            parser.error("P03 測試必須提供 --slot，例如 13:00-14:00")
+        priorities = (args.slot,)
+    else:
+        if args.slot is not None:
+            parser.error("音樂創作室請用 --slots 指定三小時時段")
+        priorities = parse_slot_priority(args.slots)
+    room_name = ROOM if args.room == "music" else "個人直播室 P03"
+    print(f"目標：{args.date.isoformat()}｜{room_name}｜優先序：{', '.join(priorities)}")
     print("注意：不繞驗證碼、不存帳密、不刷站；只會在此登入階段後操作。")
     if not args.auto_submit:
         print("未指定 --auto-submit，程式只會走到最後確認頁。")
     status = asyncio.run(autobook(args.date, priorities,
-                                  auto_submit=args.auto_submit, now_mode=args.now))
+                                  auto_submit=args.auto_submit,
+                                  now_mode=args.now, mode=args.room))
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 
