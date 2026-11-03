@@ -359,3 +359,56 @@ P03 新增 `tests/test_ncl_openlab_p03_autobook.py` 回歸測試，
 新增兩項回歸測試：含空白按鈕的正規化、一次提交守衛。
 下一次實機測試仍應檢查終端 `submit:` 的確切診斷碼；
 若結果為 `SUMMARY_MISMATCH`，不可推定是按鈕問題。
+
+## 第十六刀：午夜入口、精確 `#gobook` 與兩時段序列預約
+
+使用者提供國圖真實 DOM：
+
+```html
+<div class="art-image multimedia hover"></div>
+<button id="agree-btn" class="button agree">同意 Agree</button>
+<button class="submit-circle-button" data-en="Reserve" data-zh="預 約"
+  id="gobook" data-param2="2026-11-11" data-param5="13:00-14:00">預 約</button>
+```
+
+不使用、也不儲存 `#gobook` 其他動態 `data-param*` 值。
+
+**入口**：登入後若仍在首頁，會僅一次導向 `.art-image.multimedia`。
+如需按「同意 Agree」，使用者可在午夜前親自閱讀並點擊；
+只有明確傳入 `--accept-terms` 才允許程式自動點擊
+`#agree-btn.button.agree`。無法唯一辨識、條款文字變更或日期格未出現即停止。
+準點到達目標日之前 7 日台北 00:00，最多只刷新一次；刷新後也檢查入口。
+
+**最後預約**：只辨識唯一可見 `button#gobook.submit-circle-button`，
+同時要求完整日期／空間／時段畫面摘要與 `data-param2` 日期、
+`data-param5` 時段精確吻合，且點擊位置沒有遮蔽物。
+透過瀏覽器 `tab.mouse_click(x,y)` 發出一次滑鼠事件，
+避免僅做 JS `HTMLElement.click()` 就誤以為成功。
+按過後不重試；僅真實「預約成功」且日期、空間、時段都一致才判 PASS。
+`CLICKED_ONCE` 不是成功；未確認時必須查官方「我的紀錄」。
+
+**同日兩段**，只支援音樂創作室兩個不同三小時時段，
+使用單一瀏覽器登入，依使用者給定順序**最多兩筆**：
+第一筆完整確認成功後才重入首頁準備第二筆；
+若任一筆失敗或結果不確定，立即停止，不會重送／高速輪詢。
+
+```powershell
+# 例如：2026-11-12 下午優先、晚間第二。這是實際送出指令。
+.\.venv\Scripts\python.exe src\ncl_openlab_autobook.py --room music --date 2026-11-12 --slots 13:00-16:00,17:00-20:00 --reserve-two --auto-submit --accept-terms
+```
+
+開始前需親自登入網站、了解同意條款、在日期格頁按 Enter。
+不加 `--now` 時只可於預定午夜前 15 分鐘內執行並待命。
+以台北時區 `YYYY-MM-DD 00:00:00` 為假定放位時刻；
+這是使用者確認的操作需求，官網並未明示可保證精確到秒。
+
+**每日最多兩個時段含既有預約**。例如同日已經訂過個人直播室一段，
+剩餘當天名額可能只剩一段，不應再下雙時段指令。
+音樂創作室還需符合官方最低使用人數規則。
+禁止重覆嘗試、跳過頁面條款、驗證碼或反機器人機制；
+遵守官方預約規則及可能的網站自動化限制。
+
+這部分新增多項離線回歸測試，但**尚無音樂創作室正向實機成交證據**，
+也未證明能在午夜成功預約兩筆。請先跑完單元測試，
+再驗證 P03 的單次實機最終滑鼠送出確實成功，
+才能開啟兩段正式預約。
