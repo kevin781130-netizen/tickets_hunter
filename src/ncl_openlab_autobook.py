@@ -532,7 +532,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
         if reserve_two:
             # Sequential 2 bookings, not a polling loop. Do not move on until
             # the previous submission is verified on the real success screen.
-            if mode != "music" or len(priorities) != 2 or not auto_submit:
+            if mode not in ROOM_MODES or len(priorities) != 2 or not auto_submit:
                 return "INVALID_TWO_BOOKING_CONFIGURATION"
             for index, slot in enumerate(priorities):
                 if index > 0:
@@ -583,7 +583,7 @@ def main():
     parser.add_argument("--accept-terms", action="store_true",
                         help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
     parser.add_argument("--reserve-two", action="store_true",
-                        help="音樂創作室雙時段，兩個指定時段依序真正預約；未確認成功就停止")
+                        help="複選兩個時段依序預約兩次（music 或 P03），前一筆未確認成功就停止")
     parser.add_argument("--retry-interval", type=int, default=RETRY_INTERVAL_SECONDS,
                         help="午夜後未開放時刷新間隔（3–30秒，預設3秒）")
     parser.add_argument("--retry-window", type=int, default=RETRY_WINDOW_SECONDS,
@@ -609,8 +609,8 @@ def main():
         except ValueError as exc:
             parser.error(str(exc))
     if args.reserve_two:
-        if args.room != "music" or len(priorities) != 2:
-            parser.error("--reserve-two 僅支援音樂創作室兩個不同三小時時段")
+        if len(priorities) != 2:
+            parser.error("--reserve-two 必須指定兩個不同的合法時段（music 或 P03）")
         if not args.auto_submit:
             parser.error("--reserve-two 需要明確指定 --auto-submit")
         print("雙時段模式：每天最多兩段（含已有預約）；第一筆未確認成功不執行第二筆。")
