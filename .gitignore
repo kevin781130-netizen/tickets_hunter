@@ -59,3 +59,6 @@ __MACOSX/
 
 # AI tool configs - may hold API tokens
 .mcp.json
+
+# Local NCL OPEN LAB sanitized observation (never commit diagnostic captures)
+/ncl_openlab_evidence.json
