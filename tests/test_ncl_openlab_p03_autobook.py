@@ -187,6 +187,75 @@ class P03ModeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.parse_p03_priorities(raw)
 
+    def test_p03_two_explicit_slots_are_accepted(self):
+        args = ["app", "--date", "2026-11-12", "--room", "p03",
+                "--slots", "13:00-14:00,14:00-15:00",
+                "--reserve-two", "--now", "--auto-submit"]
+        with (patch.object(sys, "argv", args),
+              patch.object(app.asyncio, "run", return_value="MOCK") as runner,
+              contextlib.redirect_stdout(StringIO())):
+            app.main()
+        coro = runner.call_args.args[0]
+        try:
+            params = coro.cr_frame.f_locals
+            self.assertEqual(params["priorities"], ("13:00-14:00", "14:00-15:00"))
+            self.assertEqual(params["mode"], "p03")
+            self.assertTrue(params["reserve_two"])
+        finally:
+            coro.close()
+
+    def test_two_p03_bookings_never_run_second_after_uncertain_first(self):
+        import asyncio
+        import types
+
+        class FakeTab:
+            def __init__(self):
+                self.navigations = 0
+
+            async def get(self, url):
+                self.navigations += 1
+                return self
+
+        class FakeBrowser:
+            def __init__(self):
+                self.tab = FakeTab()
+
+            async def get(self, url):
+                return self.tab
+
+            async def stop(self):
+                return None
+
+        browser = FakeBrowser()
+
+        async def start(**kwargs):
+            return browser
+
+        async def ready(*args, **kwargs):
+            return "GRID_READY"
+
+        async def prompt(*args, **kwargs):
+            return ""
+
+        calls = []
+
+        async def reserve(tab, day, priorities, **kwargs):
+            calls.append((priorities, kwargs["mode"]))
+            return "SUBMITTED_SUCCESS_UNVERIFIED"
+
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(start=start)}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", prompt),
+              patch.object(app, "book_one_target", reserve)):
+            outcome = asyncio.run(app.autobook(
+                DAY, ("13:00-14:00", "14:00-15:00"),
+                auto_submit=True, now_mode=True, mode="p03",
+                reserve_two=True))
+
+        self.assertIn("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED", outcome)
+        self.assertEqual(calls, [(("13:00-14:00",), "p03")])
+        self.assertEqual(browser.tab.navigations, 0)
+
     def test_main_defaults_to_no_final_submit(self):
         args = ["app", "--date", "2026-11-11", "--room", "p03",
                 "--slot", SLOT, "--now"]
