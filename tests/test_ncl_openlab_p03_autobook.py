@@ -164,6 +164,29 @@ class P03ModeTests(unittest.TestCase):
         finally:
             coro.close()
 
+    def test_p03_can_choose_one_hour_fallback_priority(self):
+        args = ["app", "--date", "2026-11-11", "--room", "p03",
+                "--slots", "13:00-14:00,14:00-15:00",
+                "--now", "--auto-submit"]
+        with (patch.object(sys, "argv", args),
+              patch.object(app.asyncio, "run", return_value="MOCK") as runner,
+              contextlib.redirect_stdout(StringIO())):
+            app.main()
+        coro = runner.call_args.args[0]
+        try:
+            self.assertEqual(coro.cr_frame.f_locals["priorities"],
+                             ("13:00-14:00", "14:00-15:00"))
+            self.assertEqual(coro.cr_frame.f_locals["mode"], "p03")
+        finally:
+            coro.close()
+
+    def test_p03_fallback_rejects_duplicate_or_three_hour_slots(self):
+        for raw in ("13:00-14:00,13:00-14:00",
+                    "13:00-16:00,14:00-15:00",
+                    "13:30-14:30", ""):
+            with self.assertRaises(ValueError):
+                app.parse_p03_priorities(raw)
+
     def test_main_defaults_to_no_final_submit(self):
         args = ["app", "--date", "2026-11-11", "--room", "p03",
                 "--slot", SLOT, "--now"]
