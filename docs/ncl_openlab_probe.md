@@ -85,3 +85,19 @@ python src/ncl_openlab_probe.py --slot 09:00-12:00
 
 此刀的離線測試：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`；
 真實可預約狀態需要從官方頁面元素進一步驗證。
+
+## 第五刀：擷取真實時段 DOM 證據（唯讀）
+
+執行原本的 `python src/ncl_openlab_probe.py --slots 09:00-12:00,13:00-16:00`，手動登入、進入
+音樂創作室的時段畫面後按 Enter，程式會額外列出 `sanitized_time_dom_evidence`。
+
+這份資料只包含固定時段字串、候選數、控制項標籤、禁用/選取訊號，以及白名單
+狀態詞（例如「額滿」「可預約」）是否出現在同一時段附近。混入其他時段文字的容器不
+使用狀態詞，以免把別的時段的狀態誤認為自己的狀態。
+
+**隱私與安全**：不輸出網頁 HTML、任意使用者文字、帳號、密碼、Cookie、會員資料；
+未通過 `validate_evidence` 會停止，不提交預約、不自動刷新、不連續輪詢。
+這是「取證工具」，不宣稱已確認網站的滿位/可預約語意；仍需實機輸出與畫面對照。
+
+離線測試：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`；
+另外執行 `python -m py_compile src/ncl_openlab_probe.py src/ncl_openlab_evidence.py`。
