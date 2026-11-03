@@ -264,13 +264,38 @@ async def read_action(tab, phase, day, slot, mode="music"):
     return response["code"]
 
 
-async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
-    """Validate #gobook, then call the DOM element's click ONCE with user gesture.
+# Diagnostic observations only: never intercept or send the booking request.
+SUBMIT_PROBE_ARM_JS = r"""(() => {
+  const b = document.querySelector("button#gobook.submit-circle-button");
+  if (!b) return "NO_BUTTON";
+  if (window.__nclSubmitProbe) return "ALREADY_ARMED";
+  const p = window.__nclSubmitProbe = {click: false, trusted: null, ajax: false};
+  b.addEventListener("click", e => {
+    p.click = true;
+    p.trusted = e.isTrusted === true;
+  }, {capture: true, once: true});
+  if (window.jQuery) {
+    window.jQuery(document).on("ajaxSend.nclSubmitProbe", (_e, _xhr, settings) => {
+      if (/step2_media[.]jsp(?:[?#]|$)/.test(String(settings.url || "")))
+        p.ajax = true;
+    });
+  }
+  return "ARMED";
+})()"""
 
-    Zendriver Tab.mouse_click emits CDP mousePressed/mouseReleased but the live
-    site did not record a booking in the P03 acceptance test. Its Element.click
-    dispatches a JS element click using CDP user_gesture=True instead.
-    An uncertain outcome is NEVER retried. Click != verified reservation.
+SUBMIT_PROBE_READ_JS = r"""(() => {
+  const p = window.__nclSubmitProbe;
+  return p ? {click: !!p.click, trusted: p.trusted, ajax: !!p.ajax} : null;
+})()"""
+
+
+async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
+    """One real keyboard activation on the verified #gobook. Never retry submit.
+
+    Zendriver Element.click runs JS el.click(), which did not book on NCL.
+    Zendriver's native SpecialKeys.SPACE dispatches keydown+keyup on a focused
+    button. This is a single distinct activation method, not a fallback click.
+    Diagnostic observers only capture boolean click/AJAX signals, no PII.
     """
     if not await at_official_host(tab):
         return "NOT_OFFICIAL_NCL_HOST"
@@ -286,26 +311,33 @@ async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
                     not isinstance(y, (int, float)) or
                     not (0 < x < 10000 and 0 < y < 10000)):
                 return "INVALID_SUBMIT_COORDINATES"
-            # Use the element click with CDP user_gesture=True, NOT raw
-            # coordinate mouse_down/mouse_up. The live site ignored the latter.
-            # The JS action already verified #gobook, the date, room and slot.
             try:
                 element = await tab.select("button#gobook.submit-circle-button", timeout=1)
                 if element is None:
                     return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
-                await element.click()
+                if await tab.evaluate(SUBMIT_PROBE_ARM_JS) != "ARMED":
+                    return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
+                from zendriver.core.keys import SpecialKeys
+                await element.send_keys(SpecialKeys.SPACE)
             except Exception:
-                # It may have been dispatched before the browser changed pages.
-                # Never risk a duplicate booking by attempting another click.
+                # Even a timeout may occur after the booking was accepted.
                 return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
-            print("submit method: ZENDRIVER_ELEMENT_CLICK")
+            print("submit method: ZENDRIVER_KEYBOARD_SPACE")
+            try:
+                probe = await tab.evaluate(SUBMIT_PROBE_READ_JS)
+                if isinstance(probe, dict):
+                    print("submit observation: click="
+                          + str(bool(probe.get("click"))).lower()
+                          + " trusted=" + str(probe.get("trusted")).lower()
+                          + " ajax=" + str(bool(probe.get("ajax"))).lower())
+            except Exception:
+                pass  # A confirmed navigation can remove the probe; do not retry.
             return "CLICKED_ONCE"
         if code in ("SUBMIT_NOT_ACTIONABLE", "SUMMARY_MISMATCH") and i < attempts - 1:
             await asyncio.sleep(0.2)
             continue
         return code
     return "SUBMIT_NOT_ACTIONABLE"
-
 
 async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     """Only reread the local DOM; no extra HTTP requests or page refreshes."""
