@@ -1,0 +1,115 @@
+"""Contract regression tests based on screenshots of NCL OPEN LAB real DOM.
+
+Example from actual visible markup:
+<div class="time-box disabled reserving" data-param1="09:00-10:00">...</div>
+<div class="time-box" data-param1="12:00-13:00">...</div>
+<div class="space-box1 selected">P01 ...</div>
+
+This suite does not visit the reservation site or infer remaining capacity.
+"""
+import importlib.util
+import sys
+import unittest
+from datetime import date
+from pathlib import Path
+
+SOURCE = Path(__file__).resolve().parents[1] / "src"
+sys.path.insert(0, str(SOURCE))
+
+from ncl_openlab_guard import assess_probe
+from ncl_openlab_slots import plan_time_slots
+from ncl_openlab_evidence import evidence_script, validate_evidence
+
+spec = importlib.util.spec_from_file_location(
+    "ncl_openlab_probe", SOURCE / "ncl_openlab_probe.py")
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+DAY = date(2026, 11, 11)
+SLOTS = ("09:00-12:00", "13:00-16:00", "17:00-20:00")
+
+
+def node(text, *, selected=False, disabled=False, clickable=True):
+    return {"tag": "div", "sample": text, "selected": selected,
+            "disabled": disabled, "clickable": clickable}
+
+
+def selected_page():
+    return {"host": "spms.ncl.edu.tw", "source": "ncl_structured_dom_v1",
+            "results": {
+                "11/11": [node("11/11", selected=True)],
+                "音樂創作室": [node("音樂創作室", selected=True)],
+                **{slot: [node(slot)] for slot in SLOTS},
+            }}
+
+
+class StructuredDomContractTests(unittest.TestCase):
+    def test_uses_exact_timebox_attribute(self):
+        js = probe.probe_script(DAY)
+        self.assertIn(".time-box[data-param1]", js)
+        self.assertIn('el.getAttribute("data-param1") === time', js)
+        self.assertNotIn('querySelectorAll("*")', js)
+
+    def test_room_matches_space_tile_not_sidebar_heading(self):
+        js = probe.probe_script(DAY)
+        self.assertIn('querySelectorAll(".space-box1")', js)
+
+    def test_selected_class_used(self):
+        js = probe.probe_script(DAY)
+        self.assertIn('classList.contains("selected")', js)
+
+    def test_structured_date_must_be_selected(self):
+        data = selected_page()
+        data["results"]["11/11"][0]["selected"] = False
+        self.assertEqual(assess_probe(data, DAY, SLOTS[0])["reason"], "DATE_NOT_SELECTED")
+
+    def test_structured_room_must_be_selected(self):
+        data = selected_page()
+        data["results"]["音樂創作室"][0]["selected"] = False
+        self.assertEqual(assess_probe(data, DAY, SLOTS[0])["reason"], "ROOM_NOT_SELECTED")
+
+    def test_duplicate_space_tiles_block(self):
+        data = selected_page()
+        data["results"]["音樂創作室"].append(node("音樂創作室", selected=True))
+        self.assertEqual(assess_probe(data, DAY, SLOTS[0])["reason"], "ROOM_AMBIGUOUS")
+
+    def test_disabled_reserving_must_not_be_observed_candidate(self):
+        data = selected_page()
+        data["results"][SLOTS[0]][0]["disabled"] = True
+        report = plan_time_slots(data, DAY, [SLOTS[0]])
+        self.assertEqual(report["checks"][SLOTS[0]]["reason"], "SLOT_DISABLED_OR_UNKNOWN")
+        self.assertEqual(report["time_states"][SLOTS[0]]["state"], "DISABLED_UI_HINT")
+        self.assertFalse(report["can_submit"])
+
+    def test_enabled_time_still_not_verified_availability(self):
+        report = plan_time_slots(selected_page(), DAY, [SLOTS[0]])
+        self.assertEqual(report["status"], "OBSERVED_NOT_VERIFIED")
+        self.assertFalse(report["availability_verified"])
+        self.assertFalse(report["can_select_time"])
+
+    def test_evidence_scan_exact_class_based(self):
+        js = evidence_script()
+        self.assertIn('querySelectorAll(".time-box[data-param1]")', js)
+        self.assertIn('classList.contains(c)', js)
+        self.assertNotIn("document.cookie", js)
+
+    def test_evidence_allows_only_status_class_hints(self):
+        data = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
+                "times": []}
+        for slot in SLOTS:
+            data["times"].append({
+                "slot": slot, "count": 1, "truncated": False,
+                "nodes": [{"tag": "div", "control_tag": "div",
+                           "role": None, "disabled_ui_hint": True,
+                           "aria_selected": False, "checked": False,
+                           "mixed_slot_context": False, "status_hints": [],
+                           "class_hints": ["time-box", "disabled", "reserving"]}]})
+        clean = validate_evidence(data)
+        self.assertEqual(clean["times"][0]["nodes"][0]["class_hints"],
+                         ["disabled", "reserving", "time-box"])
+        data["times"][0]["nodes"][0]["class_hints"].append("user-sensitive")
+        with self.assertRaises(ValueError):
+            validate_evidence(data)
+
+
+if __name__ == "__main__":
+    unittest.main()
