@@ -81,12 +81,19 @@ ACTION_JS = r"""(() => {
     tile.click(); return result("CLICKED");
   }
   const cta = (word) => {
-    const matches = from("button, a, div, [role='button'], input[type='button'], input[type='submit']")
-      .filter(el => cleanText(el) === word ||
-        (el.matches("input") && String(el.value || "").trim() === word));
-    // Prefer the innermost exact-text node to avoid both parent and child clicks.
-    return exactOne(matches.filter(el => !matches.some(child =>
+    // NCL's round booking control may render with spacing: 預 約.
+    // Compare fixed allowlisted CTA labels only, ignoring whitespace, never partial words.
+    const exactLabel = (value) => String(value || "").replace(/\s+/g, "") === word;
+    const matches = from("button, a, div, span, [role='button'], input[type='button'], input[type='submit']")
+      .filter(el => exactLabel(el.innerText) ||
+        (el.matches("input") && exactLabel(el.value)));
+    // Prefer the innermost exact label, then its nearest actionable ancestor.
+    const leaf = exactOne(matches.filter(el => !matches.some(child =>
       child !== el && el.contains(child))));
+    if (!leaf) return null;
+    const clickable = leaf.closest("button, a, [role='button'], input[type='button'], input[type='submit']");
+    const candidate = clickable && visible(clickable) ? clickable : leaf;
+    return disabled(candidate) || disabled(leaf) ? null : candidate;
   };
   if (task.phase === "next") {
     if (!chosen(dateTile()) || !chosen(roomTile()) ||
