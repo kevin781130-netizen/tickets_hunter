@@ -57,6 +57,14 @@ def assess_probe(snapshot, target_day, target_slot):
             result["checks"][label] = "TEXT_MISMATCH"
             result["reason"] = label.upper() + "_TEXT_MISMATCH"
             return result
+        # The 2026 NCL DOM uses a CSS "selected" class for the chosen
+        # date and space. Do not mistake a visible but unselected tile
+        # for the active reservation context.
+        if (snapshot.get("source") == "ncl_structured_dom_v1"
+                and label in ("date", "room") and node.get("selected") is not True):
+            result["checks"][label] = "NOT_SELECTED"
+            result["reason"] = label.upper() + "_NOT_SELECTED"
+            return result
         if node.get("disabled") is not False:
             result["checks"][label] = "DISABLED_OR_UNKNOWN"
             result["reason"] = label.upper() + "_DISABLED_OR_UNKNOWN"
