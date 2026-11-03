@@ -322,3 +322,23 @@ https://www.ncl.edu.tw/regulations/0Q090387295603483412
 
 P03 新增 `tests/test_ncl_openlab_p03_autobook.py` 回歸測試，
 整批執行 `python -m unittest discover -s tests -p "test_ncl_openlab_*.py" -q`。
+
+## 第十四刀：P03 時段選取狀態實機修正
+
+2026-11-04 本機 P03 13:00–14:00 實測：
+`date: CLICKED`、`room: CLICKED`、`slot 13:00-14:00: SLOT_NOT_BOOK_CLASS`。
+截圖當時該時段仍為棕色未選取，程式未按「下一步」、未送出預約。
+
+根因：先前將 P03 的 `book` 類別當作**選取前條件**；
+但已觀察到的 `div.time-box.book` 是在使用者**選取該時段之後**的 HTML。
+修正如下：
+
+- P03 僅限唯一 `.time-box[data-param1]`，且不含 `disabled`、
+  `is-disabled`、`reserving`、`unavailable` 或 HTML 禁用狀態時，
+  允許從未選取棕色 `.time-box` 點選。
+- P03 `.time-box.book` 視為**已選時段**，並要求此狀態存在，才可按「下一步」。
+- 音樂創作室 `.time-box2` 的原有防護及 `book` 要求維持不變。
+- 仍以 P03、日期、時段三項比對最後確認頁，僅在 `--auto-submit`
+  明確啟用時按一次最終「預約」，絕不重試送出。
+
+新增 3 項回歸測試。此修正**尚未完成新的 P03 實機預約驗證**。
