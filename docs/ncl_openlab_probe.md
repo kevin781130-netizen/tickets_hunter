@@ -207,3 +207,33 @@ Windows 手動確認：在專案資料夾先 `git pull --ff-only`，再執行
 
 更新本機後執行 `python -m unittest discover -s tests -p "test_ncl_openlab_*.py" -v`，
 再到國圖音樂創作室確認三個禁用時段仍輸出 `disabled/reserving/time-box2`。
+
+## 第十一刀：最後「預約」頁面唯讀驗收入口
+
+國圖流程有「選日期／空間／時段 → 下一步 → 預約」兩個不同階段。
+目前**只由使用者手動前往最後頁面**，新增單次唯讀檢查，不會點擊最後的「預約」。
+
+```powershell
+.\.venv\Scripts\python.exe src\ncl_openlab_checkout_probe.py --date 2026-11-11 --slot 09:00-12:00
+```
+
+啟動後在新瀏覽器手動登入並走到最後「預約」畫面，停下，不按最終預約。
+回終端按 Enter，程式只輸出 `checkout_readonly_assessment`，包含：
+
+- 固定白名單的「下一步」「預約」「確認預約」「送出預約」「完成預約」可見數量與禁用數量
+- 本頁面仍可觀察到的已選日期、房間、三小時時段是否各唯一
+- `OBSERVED_ONLY` / `BLOCKED` 診斷，不包含任何預約成功的推論
+
+**跨頁不假設上下文會保留**：如果最後頁面已移除 `date-box`、`space-box1`
+或 `time-box2`，即使出現「預約」按鈕也回報 `BLOCKED`
+(`FINAL_CTA_VISIBLE_CONTEXT_UNVERIFIED`)；不能從 P03 的測試推論音樂創作室成功。
+輸出不讀取姓名、手機、帳號、欄位值、驗證碼、表單資料或完整網頁 HTML；
+永遠 `can_click=false`、`can_submit=false`、`booking_verified=false`。
+
+`tests/test_ncl_openlab_checkout.py` 新增 13 項獨立測試，核對網域、
+日期格式、時段白名單、CTA 缺失／禁用、個人直播室參考情境、
+不信任的輸入及無私密欄位外洩。
+
+**重要**：尚未有音樂創作室正向可預約頁面的真實 DOM 證據，也未取得最後
+「預約」按鈕的 outerHTML；因此這是一個可驗收的安全診斷入口，
+不是已實作自動預約或送出。若網站服務條款禁止自動化，仍須遵守。
