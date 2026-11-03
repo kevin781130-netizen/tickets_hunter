@@ -265,10 +265,12 @@ async def read_action(tab, phase, day, slot, mode="music"):
 
 
 async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
-    """Validate the exact #gobook target, then dispatch ONE native pointer click.
+    """Validate #gobook, then call the DOM element's click ONCE with user gesture.
 
-    If the click times out or its outcome is uncertain, never submit again.
-    Merely dispatching the click does not prove a completed reservation.
+    Zendriver Tab.mouse_click emits CDP mousePressed/mouseReleased but the live
+    site did not record a booking in the P03 acceptance test. Its Element.click
+    dispatches a JS element click using CDP user_gesture=True instead.
+    An uncertain outcome is NEVER retried. Click != verified reservation.
     """
     if not await at_official_host(tab):
         return "NOT_OFFICIAL_NCL_HOST"
@@ -284,11 +286,19 @@ async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
                     not isinstance(y, (int, float)) or
                     not (0 < x < 10000 and 0 < y < 10000)):
                 return "INVALID_SUBMIT_COORDINATES"
+            # Use the element click with CDP user_gesture=True, NOT raw
+            # coordinate mouse_down/mouse_up. The live site ignored the latter.
+            # The JS action already verified #gobook, the date, room and slot.
             try:
-                await tab.mouse_click(float(x), float(y))
+                element = await tab.select("button#gobook.submit-circle-button", timeout=1)
+                if element is None:
+                    return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
+                await element.click()
             except Exception:
-                # A failed mouse call may still have reached the site.
+                # It may have been dispatched before the browser changed pages.
+                # Never risk a duplicate booking by attempting another click.
                 return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
+            print("submit method: ZENDRIVER_ELEMENT_CLICK")
             return "CLICKED_ONCE"
         if code in ("SUBMIT_NOT_ACTIONABLE", "SUMMARY_MISMATCH") and i < attempts - 1:
             await asyncio.sleep(0.2)
