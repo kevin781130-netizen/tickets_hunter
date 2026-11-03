@@ -58,9 +58,11 @@ def build_booking_args(*, day, room, slots, immediate=False,
 
 
 def console_python(executable):
-    """pythonw.exe has no interactive stdin; spawn console python.exe instead."""
-    from pathlib import Path
-    interpreter = Path(executable)
+    """Use console python.exe even when GUI launched via pythonw.exe."""
+    from pathlib import Path, PureWindowsPath
+    raw = str(executable)
+    # Also works when checking a Windows path from a non-Windows test runner.
+    interpreter = PureWindowsPath(raw) if "\\" in raw else Path(raw)
     if interpreter.name.lower() == "pythonw.exe":
         return str(interpreter.with_name("python.exe"))
     return str(interpreter)
