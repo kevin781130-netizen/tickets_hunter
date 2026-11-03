@@ -52,7 +52,11 @@ class AutoBookTests(unittest.TestCase):
         self.assertIn('"音樂創作室"', js)
         self.assertIn('summary()', js)
         self.assertIn('window.__nclOneShotSubmit', js)
-        self.assertIn('button.click(); return result("CLICKED_ONCE")', js)
+        self.assertIn('button#gobook.submit-circle-button', js)
+        self.assertIn('button.getAttribute("data-param2") !== task.isoDate', js)
+        self.assertIn('button.getAttribute("data-param5") !== task.slot', js)
+        self.assertIn('READY_FOR_POINTER_CLICK', js)
+        self.assertNotIn('button.click(); return result("CLICKED_ONCE")', js)
 
     def test_no_private_details_reported(self):
         js = action_script("success", DAY, SLOT)
@@ -97,6 +101,54 @@ class AutoBookTests(unittest.TestCase):
     def test_unsupported_older_date_rejected(self):
         with self.assertRaises(ValueError):
             release_time(datetime(2026, 11, 12))
+
+    def test_single_pointer_click_does_not_repeat_when_uncertain(self):
+        import ncl_openlab_autobook as module
+
+        class FakeTab:
+            def __init__(self, failure=False):
+                self.failure = failure
+                self.events = []
+
+            async def evaluate(self, code):
+                self.events.append("evaluate")
+                if code == "location.href":
+                    return "https://spms.ncl.edu.tw/confirmation"
+                return {"code": "READY_FOR_POINTER_CLICK", "x": 200.0, "y": 350.0}
+
+            async def mouse_click(self, x, y):
+                self.events.append(("mouse_click", x, y))
+                if self.failure:
+                    raise RuntimeError("unsure whether event arrived")
+
+        async def one(tab):
+            return await module.submit_once_with_pointer(
+                tab, DAY, SLOT, mode="music", attempts=8)
+
+        tab = FakeTab()
+        self.assertEqual(asyncio.run(one(tab)), "CLICKED_ONCE")
+        self.assertEqual([e for e in tab.events if isinstance(e, tuple)],
+                         [("mouse_click", 200.0, 350.0)])
+        bad = FakeTab(failure=True)
+        self.assertEqual(asyncio.run(one(bad)),
+                         "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
+        self.assertEqual(len([e for e in bad.events if isinstance(e, tuple)]), 1)
+
+    def test_bad_pointer_payload_fails_closed(self):
+        import ncl_openlab_autobook as module
+        class FakeTab:
+            async def evaluate(self, code):
+                if code == "location.href":
+                    return "https://spms.ncl.edu.tw/"
+                return {"code": "READY_FOR_POINTER_CLICK",
+                        "x": "not a number", "y": 200}
+
+            async def mouse_click(self, x, y):
+                raise AssertionError("must not mouse click")
+        self.assertEqual(
+            asyncio.run(module.submit_once_with_pointer(
+                FakeTab(), DAY, SLOT, attempts=1)),
+            "INVALID_SUBMIT_COORDINATES")
 
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
