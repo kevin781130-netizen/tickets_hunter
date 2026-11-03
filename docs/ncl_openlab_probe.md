@@ -101,3 +101,27 @@ python src/ncl_openlab_probe.py --slot 09:00-12:00
 
 離線測試：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`；
 另外執行 `python -m py_compile src/ncl_openlab_probe.py src/ncl_openlab_evidence.py`。
+
+## 第六刀：可選擇輸出匿名診斷 JSON
+
+要實際核對國圖音樂創作室的時段畫面，在 Windows PowerShell 於專案根目錄執行：
+
+```powershell
+python src/ncl_openlab_probe.py --save-evidence
+```
+
+程式會打開瀏覽器。請**手動登入**並進入國圖「音樂創作室」的時段選擇畫面，
+回到終端按 Enter，工具才會做一次唯讀擷取。
+
+成功輸出固定檔名 `ncl_openlab_evidence.json`（專案根目錄）：
+只包含白名單的日期/空間/時段、控制項標籤、禁用訊號與固定狀態詞。
+檔案已加入 `.gitignore`，不會被一般 `git add .` 收錄。
+使用排他建立模式，檔案已存在時不覆蓋，避免不同日期證據混在一起。
+
+- 原本不加 `--save-evidence` 的行為完全保留，不寫入任何檔案。
+- 仍不自動選時段、不提交預約、不繞過驗證、不重試或輪詢。
+- `UNVERIFIED_DOM_ONLY` 表示**只是畫面證據，並非國圖後端認證的剩餘名額**。
+- 分享輸出前仍請自行核對，勿上傳含個資的完整網頁或開發者工具紀錄。
+
+離線單元測試：
+`python -m unittest discover -s tests -p "test_ncl_openlab_export.py"`。
