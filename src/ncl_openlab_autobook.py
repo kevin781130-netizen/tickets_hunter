@@ -45,7 +45,10 @@ ACTION_JS = r"""(() => {
   const slotTile = () => exactOne(from(task.mode === "p03"
     ? ".time-box[data-param1]" : ".time-box2[data-param1]")
     .filter(el => el.getAttribute("data-param1") === task.slot));
-  const chosen = (el) => el && el.classList.contains("selected");
+  // P03 marks the clicked/selected hour with 'book' (observed live HTML).
+  // Music-room tiles use 'selected'; keep these two state contracts separate.
+  const chosen = (el, kind) => el && (el.classList.contains("selected") ||
+    (task.mode === "p03" && kind === "slot" && el.classList.contains("book")));
   const result = (code) => ({code}); // No page content, identifiers or account data.
   if (location.hostname !== "spms.ncl.edu.tw") return result("WRONG_HOST");
   // Never switch between distinct pages without re-verifying the intended stage.
@@ -70,8 +73,11 @@ ACTION_JS = r"""(() => {
     if (!tile) return result("SLOT_NOT_UNIQUE");
     // Positive UI hint is mandatory, but is NEVER back-end availability proof.
     if (disabled(tile)) return result("SLOT_DISABLED");
-    if (!tile.classList.contains("book")) return result("SLOT_NOT_BOOK_CLASS");
-    if (chosen(tile)) return result("ALREADY_SELECTED");
+    // A P03 brown .time-box can be chosen before it gains 'book'.
+    // For music-room time-box2 keep the positive 'book' requirement.
+    if (task.mode !== "p03" && !tile.classList.contains("book"))
+      return result("SLOT_NOT_BOOK_CLASS");
+    if (chosen(tile, "slot")) return result("ALREADY_SELECTED");
     tile.click(); return result("CLICKED");
   }
   const cta = (word) => {
@@ -84,7 +90,7 @@ ACTION_JS = r"""(() => {
   };
   if (task.phase === "next") {
     if (!chosen(dateTile()) || !chosen(roomTile()) ||
-        !chosen(slotTile())) return result("TARGET_NOT_SELECTED");
+        !chosen(slotTile(), "slot")) return result("TARGET_NOT_SELECTED");
     const button = cta("下一步");
     if (!button || disabled(button)) return result("NEXT_NOT_ACTIONABLE");
     button.click(); return result("CLICKED");
