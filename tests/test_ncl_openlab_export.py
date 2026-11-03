@@ -40,7 +40,7 @@ class EvidenceExportTests(unittest.TestCase):
             path = save_capture(directory, capture)
             with self.assertRaises(FileExistsError):
                 save_capture(directory, capture)
-            self.assertEqual(json.loads(path.read_text())["schema_version"], 1)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["schema_version"], 1)
 
     def test_invalid_origin_is_rejected(self):
         value = page()
