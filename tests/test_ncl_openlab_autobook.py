@@ -102,12 +102,22 @@ class AutoBookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release_time(datetime(2026, 11, 12))
 
-    def test_single_pointer_click_does_not_repeat_when_uncertain(self):
+    def test_single_element_click_does_not_repeat_when_uncertain(self):
         import ncl_openlab_autobook as module
 
+        class FakeElement:
+            def __init__(self, tab):
+                self.tab = tab
+
+            async def click(self):
+                self.tab.events.append("element.click")
+                if self.tab.failure:
+                    raise RuntimeError("uncertain response after click")
+
         class FakeTab:
-            def __init__(self, failure=False):
+            def __init__(self, failure=False, missing=False):
                 self.failure = failure
+                self.missing = missing
                 self.events = []
 
             async def evaluate(self, code):
@@ -116,10 +126,14 @@ class AutoBookTests(unittest.TestCase):
                     return "https://spms.ncl.edu.tw/confirmation"
                 return {"code": "READY_FOR_POINTER_CLICK", "x": 200.0, "y": 350.0}
 
+            async def select(self, selector, timeout=10):
+                self.events.append(("select", selector, timeout))
+                if self.missing:
+                    return None
+                return FakeElement(self)
+
             async def mouse_click(self, x, y):
-                self.events.append(("mouse_click", x, y))
-                if self.failure:
-                    raise RuntimeError("unsure whether event arrived")
+                raise AssertionError("raw coordinate click must not be used")
 
         async def one(tab):
             return await module.submit_once_with_pointer(
@@ -127,12 +141,17 @@ class AutoBookTests(unittest.TestCase):
 
         tab = FakeTab()
         self.assertEqual(asyncio.run(one(tab)), "CLICKED_ONCE")
+        self.assertEqual(tab.events.count("element.click"), 1)
         self.assertEqual([e for e in tab.events if isinstance(e, tuple)],
-                         [("mouse_click", 200.0, 350.0)])
+                         [("select", "button#gobook.submit-circle-button", 1)])
         bad = FakeTab(failure=True)
         self.assertEqual(asyncio.run(one(bad)),
                          "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
-        self.assertEqual(len([e for e in bad.events if isinstance(e, tuple)]), 1)
+        self.assertEqual(bad.events.count("element.click"), 1)
+        missing = FakeTab(missing=True)
+        self.assertEqual(asyncio.run(one(missing)),
+                         "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY")
+        self.assertNotIn("element.click", missing.events)
 
     def test_bad_pointer_payload_fails_closed(self):
         import ncl_openlab_autobook as module
