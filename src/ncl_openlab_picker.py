@@ -139,7 +139,7 @@ class BookingPicker(tk.Tk):
         settings = tk.LabelFrame(main, text=" 4｜執行選項 ", bg=PAPER, fg=DARK,
                                  padx=12, pady=8)
         settings.pack(fill="x", pady=(0, 11))
-        ttk.Checkbutton(settings, text="立即測試（不等午夜；預設關閉）",
+        ttk.Checkbutton(settings, text="立即正式預約（不等午夜；會真的送出；預設關閉）",
                         variable=self.immediate, command=self._refresh_summary).pack(anchor="w")
         ttk.Checkbutton(settings, text="我已閱讀網站規範，並允許程式在網站顯示同意視窗時按「同意」",
                         variable=self.accept_terms).pack(anchor="w", pady=(2, 0))
@@ -238,7 +238,7 @@ class BookingPicker(tk.Tk):
 
     def _refresh_summary(self):
         release = release_datetime(self.selected_date)
-        plan = "立即執行一次（無重試）" if self.immediate.get() else (
+        plan = "立即正式預約（真實送出；無午夜重試）" if self.immediate.get() else (
             f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
             "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）"
         )
@@ -267,7 +267,7 @@ class BookingPicker(tk.Tk):
                 messagebox.showwarning(
                     "午夜放位時間",
                     "正式午夜模式請在放位前 15 分鐘內啟動。\n"
-                    "若該日期已開放，請勾選「立即測試」。"
+                    "若該日期已開放，請勾選「立即正式預約」（會真的送出）。"
                 )
                 return
 
@@ -275,7 +275,7 @@ class BookingPicker(tk.Tk):
         explanation = (f"將正式預約 {count} 個時段：\n"
                        f"{self.selected_date.isoformat()}｜{ROOM_CHOICES[self.room.get()]}\n"
                        + " → ".join(self.slots) + "\n\n"
-                       + ("立即開始選位" if self.immediate.get() else
+                       + ("立即正式預約（會送出）" if self.immediate.get() else
                           f"預定放位：{release_datetime(self.selected_date):%Y/%m/%d 00:00}（台北）")
                        + "\n先登入國圖並停在日期頁，回終端按 Enter。\n"
                        "送出後不會重複送出同一筆預約。確定啟動？")
