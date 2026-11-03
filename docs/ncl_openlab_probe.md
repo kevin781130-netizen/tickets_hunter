@@ -167,3 +167,22 @@ python src/ncl_openlab_probe.py --save-evidence
 Windows 手動確認：在專案資料夾先 `git pull --ff-only`，再執行
 ` .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_ncl_openlab_*.py" -v `。
 離線測試通過後，再於國圖已選日期／音樂創作室／三個時段畫面執行單次唯讀探測。
+
+## 第九刀：日期方塊 `date-box selected` 實機契約
+
+使用者於 2026-11-11 音樂創作室畫面的開發者工具中確認：
+
+```html
+<div class="date-box selected" id="date7">
+  11/11<br><span class="weekWords">(三,Wed)</span>
+</div>
+```
+
+上一版已能找到日期 1 筆、音樂創作室 1 筆與三個 `time-box2` 時段，
+但曾回報 `DATE_NOT_SELECTED`。日期辨識因此改為只搜尋
+`.date-box` 元素本身，以其開頭日期文字精確比對；
+仍要求 **同一元素本身具有 selected**，而非誤用星期的 `span` 或其他祖先。
+保留原 `DATE_NOT_SELECTED` fail-closed 防護；不會自動選日期、點時段或提交。
+
+更新後需執行全部 `test_ncl_openlab_*.py`，再做一次國圖唯讀實機複驗，
+確認禁用時段回報 `SLOT_DISABLED_OR_UNKNOWN` 而不是 `DATE_NOT_SELECTED`。
