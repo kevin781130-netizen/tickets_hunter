@@ -92,6 +92,22 @@ class PickerModelTests(unittest.TestCase):
             r"C:\Python311\python.exe",
         )
 
+    def test_high_dpi_layout_has_fixed_action_footer_and_scrollable_config(self):
+        source = (SRC / "ncl_openlab_picker.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        self.assertIsNotNone(tree)
+        self.assertIn('footer.pack(side="bottom", fill="x")', source)
+        self.assertIn('viewport.pack(side="top", fill="both", expand=True)', source)
+        self.assertIn('scrollregion=self.content_canvas.bbox("all")', source)
+        self.assertIn('self.content_canvas.create_window(', source)
+        self.assertIn('self.content_canvas.bind_all("<MouseWheel>"', source)
+        self.assertEqual(source.count("self.summary = tk.Label"), 1)
+        self.assertEqual(source.count('text="確認設定並開啟預約瀏覽器"'), 1)
+        self.assertLess(
+            source.index('footer.pack(side="bottom", fill="x")'),
+            source.index('viewport.pack(side="top", fill="both", expand=True)'),
+        )
+
     def test_gui_source_parses_without_opening_window(self):
         source = (SRC / "ncl_openlab_picker.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
