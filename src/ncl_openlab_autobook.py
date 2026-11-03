@@ -505,6 +505,38 @@ async def book_with_bounded_retries(
             return "RETRY_ENTRY_BLOCKED_" + status
 
 
+async def wait_until_browser_manually_closed(browser, *, interval=1.0):
+    """Keep result page alive without requesting Enter or closing Chrome.
+
+    Only monitor the locally controlled browser via DevTools; no website
+    refresh, booking requests, or new UI actions are made after completion.
+    Chromium can keep its parent process running after the last visible
+    window closes, so also look for remaining page targets.
+    """
+    no_page_checks = 0
+    while True:
+        if browser.stopped:
+            return
+        try:
+            # Zendriver's target-list call only queries the browser itself.
+            targets = await browser._get_targets()
+            if any(getattr(target, "type_", None) == "page"
+                   for target in targets):
+                no_page_checks = 0
+            else:
+                no_page_checks += 1
+                if no_page_checks >= 3:
+                    return
+        except Exception:
+            # Closing the browser can tear down CDP before the OS process
+            # exits. A lost DevTools connection is therefore terminal.
+            connection = getattr(browser, "connection", None)
+            if browser.stopped or (
+                    connection is not None and connection.closed):
+                return
+        await asyncio.sleep(interval)
+
+
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    mode="music", accept_terms=False, reserve_two=False,
                    retry_interval=RETRY_INTERVAL_SECONDS,
@@ -560,14 +592,11 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             accept_terms=accept_terms,
             retry_interval=retry_interval, retry_window=retry_window)
     finally:
-        # The browser is owned by the user, not the automation, once the run
-        # finishes (success, failure or an exception). Keep the controller
-        # alive until the user has closed the window and confirms it.
-        # In particular, do NOT call browser.stop(): that would automatically
-        # close the page displaying the official reservation result.
-        print("預約流程已結束；瀏覽器不會由程式關閉，請自行關閉瀏覽器。")
-        await asyncio.to_thread(
-            input, "自行關閉瀏覽器後，再回這個終端按 Enter 結束程式：")
+        # The actual reservation result stays visible for user inspection.
+        # Only the user closes Chrome. Do not call browser.stop() or ask for
+        # Enter (which previously ended the controller and closed Chromium).
+        print("預約流程已結束；結果頁保留。請自行關閉瀏覽器，無需按 Enter。")
+        await wait_until_browser_manually_closed(browser)
 
 
 def main():
