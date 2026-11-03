@@ -387,6 +387,25 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music"):
     # The final click is authorized only by --auto-submit.
     if not auto_submit:
         return "PREVIEW_STOPPED_BEFORE_SUBMIT"
+
+    # The next button starts a navigation. An early click can reach the newly
+    # painted #gobook before the site's click handler is attached. Wait for
+    # the finished document and its required validation functions, then allow
+    # a short fixed initialization gap. No polling/refresh of the site itself.
+    checkout_ready_js = (
+        'document.readyState === "complete" && '
+        'document.querySelectorAll("button#gobook.submit-circle-button").length === 1 && '
+        'typeof window.jQuery === "function" && '
+        'typeof window.validateEmail === "function"'
+    )
+    for _ in range(20):
+        if await tab.evaluate(checkout_ready_js) is True:
+            break
+        await asyncio.sleep(0.15)
+    else:
+        return "BLOCKED_CHECKOUT_NOT_READY"
+    await asyncio.sleep(1.0)
+
     code = await submit_once_with_pointer(tab, day, chosen_slot, mode=mode, attempts=8)
     print("submit: " + code)
     if code != "CLICKED_ONCE":
