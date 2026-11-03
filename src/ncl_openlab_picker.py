@@ -211,8 +211,9 @@ class BookingPicker(tk.Tk):
 
     def _refresh_summary(self):
         release = release_datetime(self.selected_date)
-        plan = "立即執行一次" if self.immediate.get() else (
-            f"放位日 {release:%Y/%m/%d} 00:00（台北）；23:59:50 預刷新"
+        plan = "立即執行一次（無重試）" if self.immediate.get() else (
+            f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
+            "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）"
         )
         self.summary.config(
             text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\n"
@@ -231,6 +232,17 @@ class BookingPicker(tk.Tk):
         except ValueError as exc:
             messagebox.showwarning("請確認設定", str(exc))
             return
+
+        if not self.immediate.get():
+            remaining = (release_datetime(self.selected_date) -
+                         datetime.now(TAIPEI)).total_seconds()
+            if not 0 <= remaining <= 900:
+                messagebox.showwarning(
+                    "午夜放位時間",
+                    "正式午夜模式請在放位前 15 分鐘內啟動。\n"
+                    "若該日期已開放，請勾選「立即測試」。"
+                )
+                return
 
         count = len(self.slots)
         explanation = (f"將正式預約 {count} 個時段：\n"
