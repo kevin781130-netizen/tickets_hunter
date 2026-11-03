@@ -34,8 +34,8 @@ class BookingPicker(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("國圖 OPEN LAB｜預約日期與時段")
-        self.geometry("760x760")
-        self.minsize(675, 690)
+        self.geometry("820x720")
+        self.minsize(730, 660)
         self.configure(bg=PAPER)
 
         now = datetime.now(TAIPEI)
@@ -69,9 +69,14 @@ class BookingPicker(tk.Tk):
                             variable=self.room, command=self._room_changed).pack(
                                 side="left", padx=(5, 26))
 
-        cal_frame = tk.LabelFrame(main, text=" 2｜月曆選擇預約日期 ", bg=PAPER,
-                                  fg=DARK, padx=12, pady=8)
-        cal_frame.pack(fill="x", pady=(0, 11))
+        # Calendar and slots side-by-side keep all controls visible on 720p.
+        choices_row = tk.Frame(main, bg=PAPER)
+        choices_row.pack(fill="x", pady=(0, 11))
+        choices_row.columnconfigure(0, weight=1, uniform="choice")
+        choices_row.columnconfigure(1, weight=1, uniform="choice")
+        cal_frame = tk.LabelFrame(choices_row, text=" 2｜月曆選擇預約日期 ", bg=PAPER,
+                                  fg=DARK, padx=8, pady=8)
+        cal_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         navigation = tk.Frame(cal_frame, bg=PAPER)
         navigation.pack(fill="x", pady=(0, 8))
         ttk.Button(navigation, text="◀ 上個月", command=lambda: self._change_month(-1)).pack(side="left")
@@ -87,9 +92,9 @@ class BookingPicker(tk.Tk):
                                      font=("Microsoft JhengHei UI", 10))
         self.date_caption.pack(anchor="w", pady=(7, 0))
 
-        slot_area = tk.LabelFrame(main, text=" 3｜勾選時段（最多兩個，依點擊順序預約） ",
-                                  bg=PAPER, fg=DARK, padx=12, pady=10)
-        slot_area.pack(fill="x", pady=(0, 11))
+        slot_area = tk.LabelFrame(choices_row, text=" 3｜時段（可複選兩個） ",
+                                  bg=PAPER, fg=DARK, padx=8, pady=8)
+        slot_area.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.slot_frame = tk.Frame(slot_area, bg=PAPER)
         self.slot_frame.pack(fill="x")
         self.slot_note = tk.Label(slot_area, bg=PAPER, fg=DARK, anchor="w",
