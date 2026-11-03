@@ -378,18 +378,20 @@ async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     return code
 
 
-async def book_one_target(tab, day, priorities, *, auto_submit, mode="music"):
+async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fast_probe=False):
     """One booking only. Never attempt another when this result is uncertain."""
     # Choose date and room once; stop on any ambiguous or disabled selector.
     for phase in ("date", "room"):
-        code = await attempt_stage(tab, phase, day, priorities[0], attempts=8, mode=mode)
+        code = await attempt_stage(tab, phase, day, priorities[0],
+                                   attempts=2 if fast_probe else 8, mode=mode)
         print(f"{phase}: {code}")
         if code not in ("CLICKED", "ALREADY_SELECTED"):
             return "BLOCKED_" + code
 
     chosen_slot = None
     for slot in priorities:
-        code = await attempt_stage(tab, "slot", day, slot, attempts=8, mode=mode)
+        code = await attempt_stage(tab, "slot", day, slot,
+                                   attempts=2 if fast_probe else 8, mode=mode)
         print(f"slot {slot}: {code}")
         if code in ("CLICKED", "ALREADY_SELECTED"):
             chosen_slot = slot
@@ -488,7 +490,8 @@ async def book_with_bounded_retries(
     while True:
         attempt += 1
         outcome = await book_one_target(
-            tab, day, priorities, auto_submit=auto_submit, mode=mode)
+            tab, day, priorities, auto_submit=auto_submit,
+            mode=mode, fast_probe=True)
         if outcome not in RETRYABLE_BEFORE_SUBMIT:
             return outcome
         now = loop.time()
