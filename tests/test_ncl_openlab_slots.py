@@ -61,6 +61,20 @@ class SlotTests(unittest.TestCase):
         self.assertIsNone(plan["first_observed"])
         self.assertEqual(plan["status"], "BLOCKED")
 
+    def test_disabled_time_status_is_hint_not_full_confirmation(self):
+        data = snapshot()
+        data["results"]["17:00-20:00"][0]["disabled"] = True
+        plan = plan_time_slots(data, date(2026, 11, 11), ["17:00-20:00"])
+        self.assertEqual(plan["time_states"]["17:00-20:00"]["state"], "DISABLED_UI_HINT")
+        self.assertFalse(plan["time_states"]["17:00-20:00"]["availability_verified"])
+        self.assertFalse(plan["can_submit"])
+
+    def test_enabled_time_is_only_unverified_candidate(self):
+        plan = plan_time_slots(snapshot(), date(2026, 11, 11), ["13:00-16:00"])
+        self.assertEqual(plan["time_states"]["13:00-16:00"]["state"],
+                         "CANDIDATE_UNVERIFIED")
+        self.assertFalse(plan["can_select_time"])
+
     def test_ambiguous_time_skipped(self):
         data = snapshot()
         data["results"]["09:00-12:00"].append(node("09:00-12:00"))
