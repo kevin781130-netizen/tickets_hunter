@@ -196,7 +196,8 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False):
             if remaining:
                 await asyncio.sleep(remaining)
             await tab.reload(ignore_cache=False)
-            await asyncio.sleep(0.3)
+            await tab.wait_for_ready_state(until="interactive", timeout=10)
+            await asyncio.sleep(0.15)
 
         # Choose date and room once; stop on any ambiguous or disabled selector.
         for phase in ("date", "room"):
