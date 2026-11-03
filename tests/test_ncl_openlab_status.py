@@ -26,7 +26,7 @@ class StatusTests(unittest.TestCase):
 
     def test_explicit_disabled_control(self):
         value = classify_time_state(snapshot(True), SLOT, blocked("SLOT_DISABLED_OR_UNKNOWN"))
-        self.assertEqual(value["state"], "CONTROL_DISABLED")
+        self.assertEqual(value["state"], "DISABLED_UI_HINT")
         self.assertFalse(value["can_book"])
 
     def test_disabled_not_equal_full(self):
