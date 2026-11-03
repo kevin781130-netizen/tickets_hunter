@@ -433,3 +433,23 @@ P03（而非其他直播室）或音樂創作室、日期、時段才能進下�
 錯誤或不唯一就停止，不猜測也不跨空間點擊。
 
 入口增加 4 項回歸測試；截至此 commit 尚未實機複驗。
+
+## 第十八刀：P03 最終按鈕改用 Zendriver Element.click
+
+2026-11-04 P03 真實送出測試：`date`、`room`、`slot`、
+`next` 全部 `CLICKED`，`submit: CLICKED_ONCE`，但使用者
+在官方「我的紀錄」確認**沒有新增預約**，最後畫面仍停在「預 約」。
+因此必須把前次的 `CLICKED_ONCE` 視為「鼠標事件已發送」，
+不代表後端受理。
+
+查看 Zendriver Python API：`Tab.mouse_click` 只送出
+`mousePressed/mouseReleased`，`Element.click` 則以
+`Runtime.callFunctionOn(..., user_gesture=True)` 執行元素點擊。
+本刀**改成單一** `tab.select("button#gobook.submit-circle-button")`
+後 `element.click()`，不用原本座標 `tab.mouse_click`。
+提交前仍須通過完整日期、房間、時段、按鈕 `data-param2/data-param5`
+和畫面可見／未遮蔽檢查；一旦準備提交就絕不補點第二次，
+若瀏覽器逾時或結果不明必須手動查「我的紀錄」。
+
+顯示 `submit method: ZENDRIVER_ELEMENT_CLICK` 以區分舊版實機紀錄。
+僅在實機成功畫面或官方「我的紀錄」有新紀錄時才算預約成功。
