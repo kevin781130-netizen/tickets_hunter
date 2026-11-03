@@ -21,7 +21,7 @@ SLOTS = ("09:00-12:00", "13:00-16:00", "17:00-20:00")
 # Only reads visible DOM nodes. It never triggers click, submit, or refresh.
 PROBE_JS = r"""(() => {
   // The real NCL layout has a selected date tile, .space-box1 for a room,
-  // and .time-box[data-param1] for time slots. No generic text-wide controls.
+  // and .time-box / .time-box2[data-param1] for time slots. No generic text-wide controls.
   const needles = __NEEDLES__;
   const dateLabel = needles[0];
   const roomLabel = needles[1];
@@ -45,7 +45,8 @@ PROBE_JS = r"""(() => {
     sample: needle, // Never emit arbitrary DOM text or personal details.
     selected: isSelected(el),
     disabled: isDisabled(el),
-    clickable: kind === "slot" ? el.classList.contains("time-box") :
+    clickable: kind === "slot" ?
+               (el.classList.contains("time-box") || el.classList.contains("time-box2")) :
                kind === "room" ? el.classList.contains("space-box1") :
                (el.matches("button, a, [role='button']") || isSelected(el))
   });
@@ -67,7 +68,7 @@ PROBE_JS = r"""(() => {
   results[roomLabel] = roomMatches.slice(0, 8)
     .map((el) => candidate(el, roomLabel, "room"));
   for (const time of times) {
-    const matches = Array.from(document.querySelectorAll(".time-box[data-param1]"))
+    const matches = Array.from(document.querySelectorAll(".time-box[data-param1], .time-box2[data-param1]"))
       .filter((el) => visible(el) &&
         el.getAttribute("data-param1") === time);
     results[time] = matches.slice(0, 8)
