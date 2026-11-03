@@ -85,7 +85,7 @@ class P03ModeTests(unittest.TestCase):
     def test_fails_closed_when_room_not_selected(self):
         js = app.action_script("next", DAY, SLOT, "p03")
         self.assertIn('!chosen(dateTile()) || !chosen(roomTile())', js)
-        self.assertIn('!chosen(slotTile())', js)
+        self.assertIn('!chosen(slotTile(), "slot")', js)
         self.assertIn('TARGET_NOT_SELECTED', js)
 
     def test_p03_refuses_music_room_three_hour_slot(self):
