@@ -178,6 +178,50 @@ def seconds_until_release(day, now=None):
     return (release_time(day) - t.astimezone(TAIPEI_TZ)).total_seconds()
 
 
+# One-shot lobby navigation from actual NCL entry markup. Consent is opt-in.
+ENTRY_JS = r"""(() => {
+  const action = __ALLOW_AGREE__;
+  const visible = (el) => {
+    const b = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return b.width > 0 && b.height > 0 && style.display !== "none" &&
+      style.visibility !== "hidden";
+  };
+  if (location.hostname !== "spms.ncl.edu.tw") return "WRONG_HOST";
+  if (document.querySelectorAll(".date-box").length > 0) return "GRID_READY";
+  const agrees = Array.from(document.querySelectorAll("button#agree-btn.button.agree"))
+    .filter(visible);
+  if (agrees.length === 1) {
+    if (!action) return "AGREEMENT_REQUIRED";
+    if (String(agrees[0].innerText || "").replace(/\\s+/g, "") !== "同意Agree")
+      return "AGREEMENT_LABEL_CHANGED";
+    agrees[0].click();
+    return "AGREEMENT_CLICKED";
+  }
+  const choices = Array.from(document.querySelectorAll(".art-image.multimedia"))
+    .filter(visible);
+  if (choices.length !== 1) return "ENTRY_NOT_FOUND_OR_AMBIGUOUS";
+  choices[0].click();
+  return "MULTIMEDIA_OPENED";
+})()"""
+
+
+async def ensure_date_grid(tab, *, accept_terms=False):
+    """At most five local DOM checks; never bypass or infer consent."""
+    if not await at_official_host(tab):
+        return "WRONG_HOST"
+    code = "ENTRY_NOT_FOUND_OR_AMBIGUOUS"
+    for _ in range(5):
+        code = await tab.evaluate(
+            ENTRY_JS.replace("__ALLOW_AGREE__", "true" if accept_terms else "false"))
+        if code == "GRID_READY":
+            return code
+        if code not in ("MULTIMEDIA_OPENED", "AGREEMENT_CLICKED"):
+            return code
+        await asyncio.sleep(0.3)
+    return code
+
+
 async def at_official_host(tab):
     url = await tab.evaluate("location.href")
     return urlsplit(url).hostname == NCL_HOST
@@ -252,7 +296,8 @@ async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     return code
 
 
-async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"):
+async def autobook(day, priorities, *, auto_submit, now_mode=False,
+                   mode="music", accept_terms=False):
     import zendriver as uc
 
     browser = await uc.start(headless=False)
@@ -260,10 +305,13 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"
         tab = await browser.get(NCL_URL)
         print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
         await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
-        if not await at_official_host(tab):
-            raise RuntimeError("NOT_OFFICIAL_NCL_HOST")
-        if not await tab.evaluate('document.querySelectorAll(".date-box").length > 0'):
-            raise RuntimeError("DATE_GRID_NOT_VISIBLE")
+        status = await ensure_date_grid(tab, accept_terms=accept_terms)
+        if status == "AGREEMENT_REQUIRED":
+            print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
+            await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+            status = await ensure_date_grid(tab, accept_terms=False)
+        if status != "GRID_READY":
+            raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
         if not now_mode:
             remaining = seconds_until_release(day)
             if not 0 <= remaining <= 900:
@@ -273,7 +321,9 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"
                 await asyncio.sleep(remaining)
             await tab.reload(ignore_cache=False)
             await tab.wait_for_ready_state(until="interactive", timeout=10)
-            await asyncio.sleep(0.15)
+            status = await ensure_date_grid(tab, accept_terms=accept_terms)
+            if status != "GRID_READY":
+                return "ENTRY_BLOCKED_AT_RELEASE_" + str(status)
 
         # Choose date and room once; stop on any ambiguous or disabled selector.
         for phase in ("date", "room"):
@@ -334,6 +384,8 @@ def main():
                         help="明確允許程式在核對日期、房間、時段後點一次最終「預約」")
     parser.add_argument("--now", action="store_true",
                         help="立刻執行，不等預設的 7 日前台北 00:00")
+    parser.add_argument("--accept-terms", action="store_true",
+                        help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
     args = parser.parse_args()
     if args.room == "p03":
         if args.slot is None or args.slot not in P03_SLOTS:
@@ -350,7 +402,8 @@ def main():
         print("未指定 --auto-submit，程式只會走到最後確認頁。")
     status = asyncio.run(autobook(args.date, priorities,
                                   auto_submit=args.auto_submit,
-                                  now_mode=args.now, mode=args.room))
+                                  now_mode=args.now, mode=args.room,
+                                  accept_terms=args.accept_terms))
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 
