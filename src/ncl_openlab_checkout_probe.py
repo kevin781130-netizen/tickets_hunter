@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import json
+from datetime import date
 from urllib.parse import urlsplit
 
 from ncl_openlab_probe import NCL_URL, NCL_HOST, SLOTS, next_open_date
@@ -36,7 +37,7 @@ async def inspect_checkout(day, slot):
 
 def main():
     parser = argparse.ArgumentParser(description="國圖預約最後步驟：唯讀檢查")
-    parser.add_argument("--date", type=__import__("datetime").date.fromisoformat,
+    parser.add_argument("--date", type=date.fromisoformat,
                         default=next_open_date(), help="目標日期 YYYY-MM-DD")
     parser.add_argument("--slot", choices=SLOTS, required=True,
                         help="音樂創作室三小時目標時段")
