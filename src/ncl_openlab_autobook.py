@@ -40,7 +40,7 @@ ACTION_JS = r"""(() => {
     .filter(el => cleanText(el).startsWith(task.shortDate)));
   const roomTile = () => exactOne(from(".space-box1")
     .filter(el => task.mode === "p03"
-      ? /^P03(?:\\s|$)/.test(cleanText(el))
+      ? /^P03(?:\s|$)/.test(cleanText(el))
       : cleanText(el).includes(task.room)));
   const slotTile = () => exactOne(from(task.mode === "p03"
     ? ".time-box[data-param1]" : ".time-box2[data-param1]")
@@ -92,7 +92,7 @@ ACTION_JS = r"""(() => {
   // Final confirmation page may no longer have .date-box and .space-box1.
   // Compare all three target facts in the rendered visible page, not form values.
   const matchingRoomSummary = (display) => task.mode === "p03"
-    ? display.includes("個人直播室") && /\\bP03\\b/.test(display)
+    ? display.includes("個人直播室") && /\bP03\b/.test(display)
     : display.includes(task.room);
   const summary = () => {
     const display = String(document.body.innerText || "");
@@ -253,6 +253,9 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"
                 return code
         return "SUBMITTED_SUCCESS_UNVERIFIED"
     finally:
+        # Keep the real result visible for human verification and screenshots.
+        if mode == "p03":
+            await asyncio.to_thread(input, "請核對國圖畫面；按 Enter 關閉測試瀏覽器：")
         await browser.stop()
 
 
