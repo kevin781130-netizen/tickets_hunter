@@ -4,7 +4,7 @@
 This module ONLY inspects previously collected, minimal DOM metadata. It never
 clicks elements, sends network requests, or decides to submit a reservation.
 """
-from datetime import date
+from datetime import date, datetime
 
 NCL_HOST = "spms.ncl.edu.tw"
 ROOM = "音樂創作室"
@@ -19,7 +19,7 @@ def assess_probe(snapshot, target_day, target_slot):
     """
     result = {"status": "BLOCKED", "reason": "", "checks": {},
               "can_book": False, "can_click": False}
-    if not isinstance(target_day, date) or isinstance(target_day, __import__("datetime").datetime):
+    if not isinstance(target_day, date) or isinstance(target_day, datetime):
         result["reason"] = "INVALID_DATE"
         return result
     if target_slot not in VALID_SLOTS:
