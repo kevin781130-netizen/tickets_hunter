@@ -54,14 +54,13 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn(r"/\bP03\b/", js)
 
     def test_spaced_booking_button_label_is_normalized(self):
-        """NCL final confirmation renders the circle as visually '預 約'."""
+        """Live #gobook shows '預 約'; final CTA compares its exact normalized label."""
         js = app.action_script("submit", DAY, SLOT, "p03")
-        self.assertIn(r'replace(/\s+/g, "") === word', js)
-        self.assertIn('exactLabel(el.innerText)', js)
-        self.assertIn('exactLabel(el.value)', js)
-        self.assertIn('const button = cta("預約")', js)
-        self.assertIn('const leaf = exactOne(matches.filter', js)
+        self.assertIn('from("button#gobook.submit-circle-button")', js)
+        self.assertIn(r'cleanText(button).replace(/\s+/g, "") !== "預約"', js)
+        self.assertIn('const button = exactOne(buttons)', js)
         self.assertIn('if (!summary()) return result("SUMMARY_MISMATCH")', js)
+        self.assertIn('return {code: "READY_FOR_POINTER_CLICK", x, y}', js)
 
     def test_spaced_label_preserves_single_submit_guard(self):
         js = app.action_script("submit", DAY, SLOT, "p03")
