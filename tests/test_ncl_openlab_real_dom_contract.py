@@ -4,6 +4,7 @@ Example from actual visible markup:
 <div class="time-box disabled reserving" data-param1="09:00-10:00">...</div>
 <div class="time-box" data-param1="12:00-13:00">...</div>
 <div class="space-box1 selected">P01 ...</div>
+<div class="time-box2 disabled reserving" data-param1="09:00-12:00" data-param3="false">...</div>
 
 This suite does not visit the reservation site or infer remaining capacity.
 """
@@ -46,6 +47,8 @@ class StructuredDomContractTests(unittest.TestCase):
     def test_uses_exact_timebox_attribute(self):
         js = probe.probe_script(DAY)
         self.assertIn(".time-box[data-param1]", js)
+        self.assertIn(".time-box2[data-param1]", js)
+        self.assertIn('classList.contains("time-box2")', js)
         self.assertIn('el.getAttribute("data-param1") === time', js)
         self.assertNotIn('querySelectorAll("*")', js)
 
@@ -88,9 +91,48 @@ class StructuredDomContractTests(unittest.TestCase):
 
     def test_evidence_scan_exact_class_based(self):
         js = evidence_script()
-        self.assertIn('querySelectorAll(".time-box[data-param1]")', js)
+        self.assertIn('querySelectorAll(".time-box[data-param1], .time-box2[data-param1]")', js)
         self.assertIn('classList.contains(c)', js)
         self.assertNotIn("document.cookie", js)
+
+    def test_music_room_time_box2_is_detected_without_booking(self):
+        """Based on the actual three blocked 3-hour music-room slots."""
+        probe_js = probe.probe_script(DAY)
+        evidence_js = evidence_script()
+        for script in (probe_js, evidence_js):
+            self.assertIn(".time-box2[data-param1]", script)
+            for forbidden in (".click(", ".submit(", "fetch(", "location.reload"):
+                self.assertNotIn(forbidden, script)
+        page = selected_page()
+        for slot in SLOTS:
+            page["results"][slot][0]["disabled"] = True
+        report = plan_time_slots(page, DAY, SLOTS)
+        self.assertIsNone(report["first_observed"])
+        self.assertTrue(all(report["checks"][s]["reason"] == "SLOT_DISABLED_OR_UNKNOWN"
+                            for s in SLOTS))
+        self.assertFalse(report["can_select_time"])
+        self.assertFalse(report["can_submit"])
+
+    def test_music_room_css_hints_allowlisted_and_private_values_rejected(self):
+        """Read CSS class only; data-param2/3 are never availability proof."""
+        sample = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
+                  "times": []}
+        for slot in SLOTS:
+            sample["times"].append({
+                "slot": slot, "count": 1, "truncated": False,
+                "nodes": [{"tag": "div", "control_tag": "div", "role": None,
+                           "disabled_ui_hint": True, "aria_selected": False,
+                           "checked": False, "mixed_slot_context": False,
+                           "status_hints": [],
+                           "class_hints": ["time-box2", "disabled", "reserving"],
+                           "data-param2": "216", "data-param3": "false"}]})
+        cleaned = validate_evidence(sample)
+        for slot_data in cleaned["times"]:
+            row = slot_data["nodes"][0]
+            self.assertEqual(row["class_hints"], ["disabled", "reserving", "time-box2"])
+            self.assertNotIn("data-param2", row)
+            self.assertNotIn("data-param3", row)
+        self.assertNotIn("availability_verified", str(cleaned))
 
     def test_evidence_allows_only_status_class_hints(self):
         data = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
