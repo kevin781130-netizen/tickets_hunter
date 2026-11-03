@@ -520,7 +520,7 @@ Zendriver Python 官方文件指出 `Element.click()` 執行 JS
 ## 第二十二刀｜Windows 月曆與時段複選器
 
 在專案根目錄雙擊 `launch_ncl_picker.cmd`（或在 PowerShell 執行
-`\.\.venv\Scripts\python.exe src\ncl_openlab_picker.py`，視所在工作目錄調整）。
+`.\.venv\Scripts\python.exe src\ncl_openlab_picker.py`，視所在工作目錄調整）。
 不需額外 pip 安裝 GUI 套件：使用 Python 內建 `tkinter`。
 
 - 月曆顯示本地台北日期，按上／下個月切換，可點日期；預設為下次午夜
