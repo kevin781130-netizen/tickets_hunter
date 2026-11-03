@@ -13,7 +13,7 @@ EVIDENCE_JS = r"""(() => {
   const slots = __SLOTS__;
   const normalize = (s) => String(s || "").replace(/\s/g, "")
       .replace(/[～~–—－至]/g, "-");
-  const roots = Array.from(document.querySelectorAll(".time-box[data-param1]"))
+  const roots = Array.from(document.querySelectorAll(".time-box[data-param1], .time-box2[data-param1]"))
     .slice(0, 16000);
   const visible = (el) => {
     const box = el.getBoundingClientRect();
@@ -45,7 +45,7 @@ EVIDENCE_JS = r"""(() => {
       checked: control.checked === true || control.getAttribute("aria-checked") === "true",
       mixed_slot_context: mixed,
       status_hints: mixed ? [] : statuses.filter((s) => text.includes(s)),
-      class_hints: ["time-box", "disabled", "reserving", "selected",
+      class_hints: ["time-box", "time-box2", "disabled", "reserving", "selected",
                     "is-disabled", "unavailable"].filter((c) => el.classList.contains(c))
     };
   };
@@ -125,7 +125,7 @@ def validate_evidence(data):
             clean[-1]["status_hints"] = sorted(set(hints))
             class_hints = n.get("class_hints")
             if class_hints is not None:
-                allowed_classes = {"time-box", "disabled", "reserving", "selected",
+                allowed_classes = {"time-box", "time-box2", "disabled", "reserving", "selected",
                                    "is-disabled", "unavailable"}
                 if (not isinstance(class_hints, list)
                         or any(not isinstance(c, str) or c not in allowed_classes
