@@ -84,12 +84,12 @@ class PickerModelTests(unittest.TestCase):
 
     def test_gui_spawn_uses_console_python_not_pythonw(self):
         self.assertEqual(
-            console_python(r"C:\\Users\\Frankie\\ncl-openlab\\.venv\\Scripts\\pythonw.exe"),
-            r"C:\\Users\\Frankie\\ncl-openlab\\.venv\\Scripts\\python.exe",
+            console_python(r"C:\Users\Frankie\ncl-openlab\.venv\Scripts\pythonw.exe"),
+            r"C:\Users\Frankie\ncl-openlab\.venv\Scripts\python.exe",
         )
         self.assertEqual(
-            console_python(r"C:\\Python311\\python.exe"),
-            r"C:\\Python311\\python.exe",
+            console_python(r"C:\Python311\python.exe"),
+            r"C:\Python311\python.exe",
         )
 
     def test_gui_source_parses_without_opening_window(self):
