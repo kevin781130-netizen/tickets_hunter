@@ -5,6 +5,7 @@ Example from actual visible markup:
 <div class="time-box" data-param1="12:00-13:00">...</div>
 <div class="space-box1 selected">P01 ...</div>
 <div class="time-box2 disabled reserving" data-param1="09:00-12:00" data-param3="false">...</div>
+<div class="date-box selected" id="date7">11/11<br><span class="weekWords">(三,Wed)</span></div>
 
 This suite does not visit the reservation site or infer remaining capacity.
 """
@@ -59,6 +60,15 @@ class StructuredDomContractTests(unittest.TestCase):
     def test_selected_class_used(self):
         js = probe.probe_script(DAY)
         self.assertIn('classList.contains("selected")', js)
+
+    def test_date_uses_real_date_box_not_nested_weekday_span(self):
+        """NCL selected target date is div.date-box.selected, not a weekday span."""
+        js = probe.probe_script(DAY)
+        self.assertIn('querySelectorAll(".date-box")', js)
+        self.assertIn('label.startsWith(dateLabel)', js)
+        self.assertIn('isSelected(el)', js)
+        self.assertNotIn('querySelectorAll("div, button, a")', js)
+        self.assertNotIn('querySelectorAll(".date-box.selected")', js)
 
     def test_structured_date_must_be_selected(self):
         data = selected_page()
