@@ -512,6 +512,177 @@ class AutoBookTests(unittest.TestCase):
         self.assertEqual(status, "BLOCKED_CHECKOUT_NOT_READY")
         self.assertEqual(tab.checks, 20)
 
+    def test_release_warmup_and_midnight_refresh_exactly_twice(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        actions = []
+        clock = iter((14, 10, 10))
+
+        async def refresh(tab, **kwargs):
+            actions.append("refresh")
+            return "GRID_READY"
+
+        async def nap(seconds):
+            actions.append(("sleep", seconds))
+
+        with (patch.object(app, "seconds_until_release",
+                           side_effect=lambda day: next(clock)),
+              patch.object(app, "refresh_booking_grid", refresh),
+              patch.object(app.asyncio, "sleep", nap)):
+            result = asyncio.run(app.wait_until_release(
+                object(), DAY, mode="music", accept_terms=False))
+        self.assertEqual(result, "GRID_READY")
+        self.assertEqual(actions, [("sleep", 4), "refresh",
+                                   ("sleep", 10), "refresh"])
+
+    def test_release_skips_warmup_when_too_late(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        actions = []
+
+        async def refresh(*args, **kwargs):
+            actions.append("refresh")
+            return "GRID_READY"
+
+        async def nap(seconds):
+            actions.append(("sleep", seconds))
+
+        with (patch.object(app, "seconds_until_release",
+                           side_effect=[2, 2]),
+              patch.object(app, "refresh_booking_grid", refresh),
+              patch.object(app.asyncio, "sleep", nap)):
+            result = asyncio.run(app.wait_until_release(
+                object(), DAY, mode="music", accept_terms=False))
+        self.assertEqual(result, "GRID_READY")
+        self.assertEqual(actions, [("sleep", 2), "refresh"])
+
+    def test_release_early_window_guard_refreshes_nothing(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        async def forbidden(*args, **kwargs):
+            raise AssertionError("refresh must not run outside release window")
+
+        with (patch.object(app, "seconds_until_release", return_value=1100),
+              patch.object(app, "refresh_booking_grid", forbidden)):
+            result = asyncio.run(app.wait_until_release(
+                object(), DAY, mode="music", accept_terms=False))
+        self.assertEqual(result, "RELEASE_OUTSIDE_15_MINUTE_WINDOW")
+
+    def test_bounded_release_retries_only_unopened_slot_before_submit(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        actions = []
+        replies = iter(("NO_BOOKABLE_UI_SLOT", "SUCCESS_PAGE_MATCHED"))
+
+        async def fake_booking(tab, day, priorities, **kwargs):
+            actions.append(("attempt", priorities))
+            return next(replies)
+
+        async def refresh(*args, **kwargs):
+            actions.append("refresh")
+            return "GRID_READY"
+
+        async def nap(seconds):
+            actions.append(("sleep", seconds))
+
+        with (patch.object(app, "book_one_target", fake_booking),
+              patch.object(app, "refresh_booking_grid", refresh),
+              patch.object(app.asyncio, "sleep", nap)):
+            status = asyncio.run(app.book_with_bounded_retries(
+                object(), DAY, (SLOT,), auto_submit=True,
+                mode="music", accept_terms=False,
+                retry_interval=3, retry_window=20))
+        self.assertEqual(status, "SUCCESS_PAGE_MATCHED")
+        self.assertEqual(actions, [
+            ("attempt", (SLOT,)), ("sleep", 3), "refresh",
+            ("attempt", (SLOT,))
+        ])
+
+    def test_release_never_retries_after_any_submission_result(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        for result in ("SUCCESS_PAGE_MATCHED", "SUBMITTED_SUCCESS_UNVERIFIED",
+                       "BLOCKED_SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY",
+                       "BLOCKED_SUMMARY_MISMATCH", "PREVIEW_STOPPED_BEFORE_SUBMIT"):
+            calls = []
+
+            async def fake_booking(*args, **kwargs):
+                calls.append("attempt")
+                return result
+
+            async def forbidden(*args, **kwargs):
+                raise AssertionError("no refresh after reaching checkout")
+
+            with (patch.object(app, "book_one_target", fake_booking),
+                  patch.object(app, "refresh_booking_grid", forbidden)):
+                actual = asyncio.run(app.book_with_bounded_retries(
+                    object(), DAY, (SLOT,), auto_submit=True,
+                    mode="music", accept_terms=False,
+                    retry_interval=3, retry_window=90))
+            self.assertEqual(actual, result)
+            self.assertEqual(calls, ["attempt"])
+
+    def test_retry_window_zero_stops_without_refresh(self):
+        import ncl_openlab_autobook as app
+        from unittest.mock import patch
+
+        async def fake_booking(*args, **kwargs):
+            return "BLOCKED_DATE_NOT_UNIQUE"
+
+        async def forbidden(*args, **kwargs):
+            raise AssertionError("exhausted retry must not refresh")
+
+        with (patch.object(app, "book_one_target", fake_booking),
+              patch.object(app, "refresh_booking_grid", forbidden)):
+            result = asyncio.run(app.book_with_bounded_retries(
+                object(), DAY, (SLOT,), auto_submit=True,
+                mode="music", accept_terms=False,
+                retry_interval=3, retry_window=0))
+        self.assertEqual(result,
+                         "RELEASE_WINDOW_EXHAUSTED_BLOCKED_DATE_NOT_UNIQUE")
+
+    def test_slot_priority_and_retry_flags_pass_to_main(self):
+        import contextlib
+        from io import StringIO
+        from unittest.mock import patch
+        import ncl_openlab_autobook as app
+
+        with (patch.object(sys, "argv", [
+            "app", "--date", "2026-11-12", "--room", "music",
+            "--slots", "13:00-16:00,09:00-12:00",
+            "--retry-interval", "3", "--retry-window", "90",
+            "--auto-submit"
+        ]),
+              patch.object(app.asyncio, "run", return_value="MOCK") as runner,
+              contextlib.redirect_stdout(StringIO())):
+            app.main()
+        coro = runner.call_args.args[0]
+        try:
+            self.assertEqual(coro.cr_frame.f_locals["priorities"],
+                             ("13:00-16:00", "09:00-12:00"))
+            self.assertEqual(coro.cr_frame.f_locals["retry_interval"], 3)
+            self.assertEqual(coro.cr_frame.f_locals["retry_window"], 90)
+        finally:
+            coro.close()
+
+    def test_invalid_retry_frequency_is_rejected_before_browser(self):
+        import contextlib
+        from io import StringIO
+        from unittest.mock import patch
+        import ncl_openlab_autobook as app
+
+        with (patch.object(sys, "argv", [
+            "app", "--date", "2026-11-12", "--retry-interval", "1"
+        ]), contextlib.redirect_stderr(StringIO())):
+            with self.assertRaises(SystemExit) as err:
+                app.main()
+        self.assertEqual(err.exception.code, 2)
+
     def test_dom_retry_stops_on_disabled(self):
         class Tab:
             def __init__(self):
