@@ -412,3 +412,24 @@ P03 新增 `tests/test_ncl_openlab_p03_autobook.py` 回歸測試，
 也未證明能在午夜成功預約兩筆。請先跑完單元測試，
 再驗證 P03 的單次實機最終滑鼠送出確實成功，
 才能開啟兩段正式預約。
+
+## 第十七刀：修正多媒體空間現況頁到 7 日日期格的入口
+
+2026-11-04 實機觀察：
+- 先前程式在 `DATE_GRID_NOT_READY_ENTRY_NOT_FOUND_OR_AMBIGUOUS` 停止，
+  當時網址為 `/NLT/co/multimedia.jsp`，無 `.date-box`、
+  `.art-image.multimedia`、`#agree-btn`，不是日期頁。
+- 在空間現況頁，使用者提供 `div.lab-item#media_seat_8` 內含
+  `div.lab-name[data-zh="個人直播室"]`，手動點擊後跳到
+  `/NLT/co/media_discussion.jsp`，此頁有 **7 個** `.date-box`。
+
+修正 `ENTRY_JS`：只在官方主機的 `/NLT/co/multimedia.jsp`
+尋找**唯一、可見、未禁用**的
+`.lab-item .lab-name[data-zh]`。P03 模式只接受
+`個人直播室`，音樂創作室模式只接受 `音樂創作室`，
+點擊其最近的 `.lab-item` 一次後，等待真正日期格出現。
+不採用網頁中動態或跨日的 session ID，進入日期格後仍需精確選
+P03（而非其他直播室）或音樂創作室、日期、時段才能進下一步。
+錯誤或不唯一就停止，不猜測也不跨空間點擊。
+
+入口增加 4 項回歸測試；截至此 commit 尚未實機複驗。
