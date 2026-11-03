@@ -560,10 +560,14 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             accept_terms=accept_terms,
             retry_interval=retry_interval, retry_window=retry_window)
     finally:
-        # Keep the real result visible for human verification and screenshots.
-        if mode == "p03":
-            await asyncio.to_thread(input, "請核對國圖畫面；按 Enter 關閉測試瀏覽器：")
-        await browser.stop()
+        # The browser is owned by the user, not the automation, once the run
+        # finishes (success, failure or an exception). Keep the controller
+        # alive until the user has closed the window and confirms it.
+        # In particular, do NOT call browser.stop(): that would automatically
+        # close the page displaying the official reservation result.
+        print("預約流程已結束；瀏覽器不會由程式關閉，請自行關閉瀏覽器。")
+        await asyncio.to_thread(
+            input, "自行關閉瀏覽器後，再回這個終端按 Enter 結束程式：")
 
 
 def main():
