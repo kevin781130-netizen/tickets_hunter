@@ -1,4 +1,4 @@
-# 國圖 OPEN LAB 音樂創作室：獨立偵測器（第一刀）
+# 國圖 OPEN LAB 音樂創作室：使用時段預約輔助（唯讀）
 
 此工具在 `feat/ncl-openlab-booking` 支線，**不接入 Tickets Hunter 主迴圈**，也不修改其他售票平台。
 
@@ -43,3 +43,25 @@ python -m py_compile src/ncl_openlab_probe.py src/ncl_openlab_guard.py
 ## 後續開發的進入條件
 
 取得實際 DOM 偵測結果後，才能建立精準且 fail-closed 的日期/空間/時段選擇邏輯。未確認網站服務條款及 DOM 前，不做自動送出、CAPTCHA 繞過或高頻重試。
+
+## 第三刀：改為「時段」優先，不是座位
+
+固定空間為「音樂創作室」，只對預約 **使用時段** 排序（不涉及座位、座號或房間內位置）。
+
+```powershell
+# 第一優先晚間，其次下午；逗號後不加空白也可以
+python src/ncl_openlab_probe.py --slots 17:00-20:00,13:00-16:00
+
+# 僅查看上午時段（與原 --slot 相容）
+python src/ncl_openlab_probe.py --slot 09:00-12:00
+```
+
+輸出 `time_slot_priority_plan`，包含依使用者指定優先序排列的三小時使用時段，
+`first_observed` 只代表目前頁面找到的第一個候選時段，**不表示已滿/可預約狀態已獲官方確認**。
+若時間文字重複、被禁用或空間不符，該時段不會成為候選。
+程式仍不會點選、預約、輪詢，也不儲存登入資料。
+
+離線測試：`python -m unittest discover -s tests -p "test_ncl_openlab_*.py"`
+
+**尚未完成：** 需從國圖音樂創作室實際預約畫面的 DOM 確認「已滿 / 可預約」的欄位，
+才能安全地轉為可執行的時段選取器。
