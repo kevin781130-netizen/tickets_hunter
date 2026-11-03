@@ -163,6 +163,26 @@ def action_script(phase, day, slot, mode="music"):
     return ACTION_JS.replace("__TASK__", json.dumps(data, ensure_ascii=False))
 
 
+# Conservative minimum cadence for time-sensitive, bounded release checks.
+PRE_REFRESH_SECONDS = 10
+RETRY_INTERVAL_SECONDS = 3
+RETRY_WINDOW_SECONDS = 90
+RETRYABLE_BEFORE_SUBMIT = frozenset({
+    "BLOCKED_DATE_NOT_UNIQUE", "BLOCKED_DATE_DISABLED",
+    "BLOCKED_ROOM_NOT_UNIQUE", "NO_BOOKABLE_UI_SLOT",
+})
+
+
+def parse_p03_priorities(raw):
+    """Ordered one-hour P03 alternatives; only one reservation is submitted."""
+    values = tuple(v.strip() for v in raw.split(",")) if isinstance(raw, str) else ()
+    if (not values or len(values) > len(P03_SLOTS) or
+            len(values) != len(set(values)) or
+            any(v not in P03_SLOTS for v in values)):
+        raise ValueError("P03 時段必須是不重複的 09:00-10:00 至 19:00-20:00 整點一小時")
+    return values
+
+
 def release_time(day):
     if not isinstance(day, date) or isinstance(day, datetime):
         raise ValueError("invalid target day")
@@ -420,8 +440,72 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music"):
     return "SUBMITTED_SUCCESS_UNVERIFIED"
 
 
+async def refresh_booking_grid(tab, *, mode, accept_terms):
+    """One official-page refresh; never submit anything or bypass terms."""
+    await tab.reload(ignore_cache=False)
+    await tab.wait_for_ready_state(until="interactive", timeout=10)
+    return await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+
+
+async def wait_until_release(tab, day, *, mode, accept_terms,
+                             pre_refresh_seconds=PRE_REFRESH_SECONDS):
+    """T-10 warmup once, then a mandatory T=00:00 release refresh."""
+    remaining = seconds_until_release(day)
+    if not 0 <= remaining <= 900:
+        return "RELEASE_OUTSIDE_15_MINUTE_WINDOW"
+    if pre_refresh_seconds and remaining >= pre_refresh_seconds:
+        await asyncio.sleep(max(0, remaining - pre_refresh_seconds))
+        if seconds_until_release(day) > 0:
+            print("開放前 10 秒預刷新一次（不嘗試預約）。")
+            status = await refresh_booking_grid(
+                tab, mode=mode, accept_terms=accept_terms)
+            if status != "GRID_READY":
+                return "PRE_REFRESH_BLOCKED_" + status
+    elif pre_refresh_seconds:
+        print("不足 10 秒，略過預刷新，保留準點正式刷新。")
+
+    remaining = seconds_until_release(day)
+    if remaining > 0:
+        await asyncio.sleep(remaining)
+    print("台北時間 00:00：正式刷新，檢查日期及時段。")
+    status = await refresh_booking_grid(tab, mode=mode, accept_terms=accept_terms)
+    return status if status == "GRID_READY" else "RELEASE_REFRESH_BLOCKED_" + status
+
+
+async def book_with_bounded_retries(
+        tab, day, priorities, *, auto_submit, mode, accept_terms,
+        retry_interval=RETRY_INTERVAL_SECONDS, retry_window=RETRY_WINDOW_SECONDS):
+    """Retry only BEFORE reaching checkout; never repeat a final reservation.
+
+    Poll cadence counts only page refreshes; no rapid background API calls.
+    All stop codes after choosing a slot/going to checkout are terminal.
+    """
+    if not (3 <= retry_interval <= 30 and 0 <= retry_window <= 180):
+        return "INVALID_RETRY_LIMITS"
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + retry_window
+    attempt = 0
+    while True:
+        attempt += 1
+        outcome = await book_one_target(
+            tab, day, priorities, auto_submit=auto_submit, mode=mode)
+        if outcome not in RETRYABLE_BEFORE_SUBMIT:
+            return outcome
+        now = loop.time()
+        if now + retry_interval > deadline:
+            return "RELEASE_WINDOW_EXHAUSTED_" + outcome
+        print(f"第 {attempt} 次：新日期或指定時段尚未可預約，"
+              f"{retry_interval} 秒後重新整理。")
+        await asyncio.sleep(retry_interval)
+        status = await refresh_booking_grid(tab, mode=mode, accept_terms=accept_terms)
+        if status != "GRID_READY":
+            return "RETRY_ENTRY_BLOCKED_" + status
+
+
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
-                   mode="music", accept_terms=False, reserve_two=False):
+                   mode="music", accept_terms=False, reserve_two=False,
+                   retry_interval=RETRY_INTERVAL_SECONDS,
+                   retry_window=RETRY_WINDOW_SECONDS):
     import zendriver as uc
 
     browser = await uc.start(headless=False)
@@ -437,17 +521,10 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
         if status != "GRID_READY":
             raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
         if not now_mode:
-            remaining = seconds_until_release(day)
-            if not 0 <= remaining <= 900:
-                raise RuntimeError("RELEASE_OUTSIDE_15_MINUTE_WINDOW")
-            print("等待國圖預約開放時間（台北時間），到點只刷新一次。")
-            if remaining:
-                await asyncio.sleep(remaining)
-            await tab.reload(ignore_cache=False)
-            await tab.wait_for_ready_state(until="interactive", timeout=10)
-            status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+            status = await wait_until_release(
+                tab, day, mode=mode, accept_terms=accept_terms)
             if status != "GRID_READY":
-                return "ENTRY_BLOCKED_AT_RELEASE_" + str(status)
+                return status
 
         if reserve_two:
             # Sequential 2 bookings, not a polling loop. Do not move on until
@@ -460,15 +537,25 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                     status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
                     if status != "GRID_READY":
                         return "SECOND_ENTRY_BLOCKED_" + str(status)
-                outcome = await book_one_target(
+                outcome = (await book_one_target(
                     tab, day, (slot,), auto_submit=True, mode=mode)
+                    if now_mode else await book_with_bounded_retries(
+                        tab, day, (slot,), auto_submit=True, mode=mode,
+                        accept_terms=accept_terms,
+                        retry_interval=retry_interval,
+                        retry_window=retry_window))
                 print(f"booking {index+1}/2 {slot}: {outcome}")
                 if outcome != "SUCCESS_PAGE_MATCHED":
                     return ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_"
                             if index == 0 else "SECOND_NOT_CONFIRMED_") + outcome
             return "TWO_BOOKINGS_CONFIRMED"
-        return await book_one_target(tab, day, priorities,
-                                     auto_submit=auto_submit, mode=mode)
+        if now_mode:
+            return await book_one_target(tab, day, priorities,
+                                         auto_submit=auto_submit, mode=mode)
+        return await book_with_bounded_retries(
+            tab, day, priorities, auto_submit=auto_submit, mode=mode,
+            accept_terms=accept_terms,
+            retry_interval=retry_interval, retry_window=retry_window)
     finally:
         # Keep the real result visible for human verification and screenshots.
         if mode == "p03":
@@ -483,7 +570,8 @@ def main():
     parser.add_argument("--room", choices=ROOM_MODES, default="music",
                         help="music 音樂創作室（預設）或 p03 個人直播室測試")
     target = parser.add_mutually_exclusive_group()
-    target.add_argument("--slots", default=None, help="音樂創作室三小時時段優先序")
+    target.add_argument("--slots", default=None,
+                        help="依優先順序指定時段，例如 13:00-16:00,09:00-12:00；P03 可指定一小時備選")
     target.add_argument("--slot", default=None, help="P03 唯一的一小時測試時段")
     parser.add_argument("--auto-submit", action="store_true",
                         help="明確允許程式在核對日期、房間、時段後點一次最終「預約」")
@@ -493,15 +581,30 @@ def main():
                         help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
     parser.add_argument("--reserve-two", action="store_true",
                         help="音樂創作室雙時段，兩個指定時段依序真正預約；未確認成功就停止")
+    parser.add_argument("--retry-interval", type=int, default=RETRY_INTERVAL_SECONDS,
+                        help="午夜後未開放時刷新間隔（3–30秒，預設3秒）")
+    parser.add_argument("--retry-window", type=int, default=RETRY_WINDOW_SECONDS,
+                        help="午夜後最多重試秒數（0–180秒，預設90秒）")
     args = parser.parse_args()
+    if not (3 <= args.retry_interval <= 30 and 0 <= args.retry_window <= 180):
+        parser.error("重試間隔須為3–30秒，重試時間須為0–180秒")
     if args.room == "p03":
-        if args.slot is None or args.slot not in P03_SLOTS:
-            parser.error("P03 測試必須提供 --slot，例如 13:00-14:00")
-        priorities = (args.slot,)
+        if args.slot is None and args.slots is None:
+            parser.error("P03 須指定 --slot 或 --slots（整點一小時）")
+        try:
+            priorities = ((args.slot,) if args.slot is not None
+                          else parse_p03_priorities(args.slots))
+        except ValueError as exc:
+            parser.error(str(exc))
+        if any(v not in P03_SLOTS for v in priorities):
+            parser.error("P03 必須指定一小時時段")
     else:
         if args.slot is not None:
             parser.error("音樂創作室請用 --slots 指定三小時時段")
-        priorities = parse_slot_priority(args.slots)
+        try:
+            priorities = parse_slot_priority(args.slots)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.reserve_two:
         if args.room != "music" or len(priorities) != 2:
             parser.error("--reserve-two 僅支援音樂創作室兩個不同三小時時段")
@@ -517,7 +620,9 @@ def main():
                                   auto_submit=args.auto_submit,
                                   now_mode=args.now, mode=args.room,
                                   accept_terms=args.accept_terms,
-                                  reserve_two=args.reserve_two))
+                                  reserve_two=args.reserve_two,
+                                  retry_interval=args.retry_interval,
+                                  retry_window=args.retry_window))
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 
