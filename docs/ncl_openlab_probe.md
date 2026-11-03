@@ -186,3 +186,24 @@ Windows 手動確認：在專案資料夾先 `git pull --ff-only`，再執行
 
 更新後需執行全部 `test_ncl_openlab_*.py`，再做一次國圖唯讀實機複驗，
 確認禁用時段回報 `SLOT_DISABLED_OR_UNKNOWN` 而不是 `DATE_NOT_SELECTED`。
+
+## 第十刀：保留 `book` 為唯讀 UI 提示
+
+2026-11-11 其他空間（**個人直播室 P03**）真實可選外觀 DOM：
+
+```html
+<div class="time-box book" id="timebox0" data-param1="09:00-10:00" data-param2="1" data-param3="true">09:00-10:00</div>
+```
+
+與音樂創作室三小時時段 `time-box2 disabled reserving` 不同。
+新增 `book` 至 `sanitized_time_dom_evidence.times[].nodes[].class_hints`
+固定白名單（及對應驗證器），**僅供診斷**：
+不代表 `availability_verified=true`，也不保證音樂創作室使用相同正向狀態。
+不保存 `data-param2` 或 `data-param3`，不新增其他房間的一小時時段至目標清單。
+
+新增回歸案例：允許 `book` 診斷 token 但仍不預約；`book` 與
+`disabled reserving` 同時存在時，禁用訊號優先，始終 `BLOCKED`。
+`main` 未變、無自動選取、提交、重新整理、輪詢或驗證碼操作。
+
+更新本機後執行 `python -m unittest discover -s tests -p "test_ncl_openlab_*.py" -v`，
+再到國圖音樂創作室確認三個禁用時段仍輸出 `disabled/reserving/time-box2`。
