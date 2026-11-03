@@ -187,6 +187,78 @@ class AutoBookTests(unittest.TestCase):
             self.assertEqual(status, "AGREEMENT_REQUIRED")
             self.assertIn("const action = true;", another.scripts[0])
 
+    def test_live_multimedia_status_card_routes_to_date_grid(self):
+        """Actual observed path: /NLT/co/multimedia.jsp -> media_discussion.jsp."""
+        import ncl_openlab_autobook as module
+        js = module.ENTRY_JS
+        self.assertIn('location.pathname === "/NLT/co/multimedia.jsp"', js)
+        self.assertIn('".lab-item .lab-name[data-zh]"', js)
+        self.assertIn('mode === "p03" ? "個人直播室" : "音樂創作室"', js)
+        self.assertIn('el.getAttribute("data-zh") === roomName', js)
+        self.assertIn('const tile = labels[0].closest(".lab-item")', js)
+        self.assertIn('tile.click();', js)
+        self.assertIn('"STATUS_ROOM_OPENED"', js)
+        self.assertIn('"STATUS_ROOM_NOT_UNIQUE"', js)
+        self.assertIn('document.querySelectorAll(".date-box").length > 0', js)
+
+    def test_entry_selects_requested_mode_not_another_room(self):
+        import ncl_openlab_autobook as module
+        from unittest.mock import patch
+
+        class FakeTab:
+            def __init__(self):
+                self.scripts = []
+
+            async def evaluate(self, script):
+                self.scripts.append(script)
+                return "STATUS_ROOM_NOT_UNIQUE"
+
+        async def yes(_):
+            return True
+
+        with patch.object(module, "at_official_host", yes):
+            for mode in ("p03", "music"):
+                tab = FakeTab()
+                self.assertEqual(asyncio.run(
+                    module.ensure_date_grid(tab, mode=mode)),
+                    "STATUS_ROOM_NOT_UNIQUE")
+                self.assertEqual(len(tab.scripts), 1)
+                self.assertIn('const mode = "' + mode + '";', tab.scripts[0])
+
+    def test_entry_waits_for_date_grid_after_card_click(self):
+        import ncl_openlab_autobook as module
+        from unittest.mock import patch
+
+        class FakeTab:
+            def __init__(self):
+                self.scripts = []
+                self.responses = ["STATUS_ROOM_OPENED", "GRID_READY"]
+
+            async def evaluate(self, script):
+                self.scripts.append(script)
+                return self.responses.pop(0)
+
+        async def yes(_):
+            return True
+
+        async def instant_sleep(_):
+            return None
+
+        with (patch.object(module, "at_official_host", yes),
+              patch.object(module.asyncio, "sleep", instant_sleep)):
+            tab = FakeTab()
+            self.assertEqual(asyncio.run(
+                module.ensure_date_grid(tab, mode="p03")), "GRID_READY")
+            self.assertEqual(len(tab.scripts), 2)
+
+    def test_entry_never_clicks_unavailable_room(self):
+        import ncl_openlab_autobook as module
+        js = module.ENTRY_JS
+        self.assertIn('tile.classList.contains("disabled")', js)
+        self.assertIn('tile.classList.contains("unavailable")', js)
+        self.assertIn('tile.getAttribute("aria-disabled") === "true"', js)
+        self.assertIn('"STATUS_ROOM_NOT_ACTIONABLE"', js)
+
     def test_native_click_requires_one_exact_gobook(self):
         from ncl_openlab_autobook import action_script
         js = action_script("submit", DAY, SLOT)
