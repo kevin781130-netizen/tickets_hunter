@@ -149,3 +149,21 @@ python src/ncl_openlab_probe.py --save-evidence
 更新本機開發分支後，用
 \`.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_ncl_openlab_*.py"\`
 離線複驗。需再到國圖相同選時畫面完成一次真實 DOM 驗證，才能宣稱實機通過。
+
+## 第八刀：修正音樂創作室 time-box2 的真實 DOM
+
+依據 **音樂創作室 2026-11-11** 的使用者提供 HTML，
+三個三小時時段屬於 `div.time-box2[data-param1]`，
+不同於個人直播室的一小時 `div.time-box[data-param1]`。
+
+- 兩種時段類別均用精確 `data-param1` 查詢；正式目標仍只有音樂創作室的三小時時段。
+- `disabled reserving` 是 **介面禁用訊號**；三個時段都禁用時不可推薦、不可預約。
+- `data-param2="216"`、`data-param3="false"` 不用作判斷是否有名額，也不輸出到匿名證據。
+- `ncl_openlab_evidence.py` 的 `class_hints` 允許 `time-box2`，同時保留既有白名單與隱私限制。
+- 新增兩個回歸測試，涵蓋真實三小時 HTML 契約與全禁用 fail-closed 行為。
+
+本刀不啟用自動點擊、登入、CAPTCHA 處理、提交或輪詢。
+
+Windows 手動確認：在專案資料夾先 `git pull --ff-only`，再執行
+` .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_ncl_openlab_*.py" -v `。
+離線測試通過後，再於國圖已選日期／音樂創作室／三個時段畫面執行單次唯讀探測。
