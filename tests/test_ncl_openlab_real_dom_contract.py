@@ -6,6 +6,7 @@ Example from actual visible markup:
 <div class="space-box1 selected">P01 ...</div>
 <div class="time-box2 disabled reserving" data-param1="09:00-12:00" data-param3="false">...</div>
 <div class="date-box selected" id="date7">11/11<br><span class="weekWords">(三,Wed)</span></div>
+<div class="time-box book" data-param1="09:00-10:00" data-param3="true">09:00-10:00</div>  # P03 only
 
 This suite does not visit the reservation site or infer remaining capacity.
 """
@@ -143,6 +144,66 @@ class StructuredDomContractTests(unittest.TestCase):
             self.assertNotIn("data-param2", row)
             self.assertNotIn("data-param3", row)
         self.assertNotIn("availability_verified", str(cleaned))
+
+    def test_book_class_is_sanitized_only_not_verified_availability(self):
+        """The real P03 hour-long .time-box.book is reference, not music-room proof."""
+        js = evidence_script()
+        self.assertIn('"book"', js)
+        self.assertNotIn('data-param3', js)
+        with self.assertRaises(ValueError):
+            evidence_script(("09:00-10:00",))  # P03 is not a music-room slot
+        data = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
+                "times": []}
+        for slot in SLOTS:
+            data["times"].append({
+                "slot": slot, "count": 1, "truncated": False,
+                "nodes": [{"tag": "div", "control_tag": "div", "role": None,
+                           "disabled_ui_hint": False, "aria_selected": False,
+                           "checked": False, "mixed_slot_context": False,
+                           "status_hints": [],
+                           "class_hints": ["time-box2", "book"],
+                           "data-param3": "true"}]})
+        clean = validate_evidence(data)
+        for row in clean["times"]:
+            self.assertEqual(row["nodes"][0]["class_hints"], ["book", "time-box2"])
+            self.assertNotIn("data-param3", row["nodes"][0])
+        # Even if a genuine music-room slot later appears enabled,
+        # a read-only candidate must never authorize automatic booking.
+        report = plan_time_slots(selected_page(), DAY, SLOTS)
+        self.assertFalse(report["availability_verified"])
+        self.assertFalse(report["can_select_time"])
+        self.assertFalse(report["can_submit"])
+
+    def test_book_cannot_override_disabled_reserving(self):
+        """Even contradictory UI hints never allow selection of a disabled slot."""
+        page = selected_page()
+        for slot in SLOTS:
+            page["results"][slot][0]["disabled"] = True
+        report = plan_time_slots(page, DAY, SLOTS)
+        for slot in SLOTS:
+            self.assertEqual(report["checks"][slot]["reason"],
+                             "SLOT_DISABLED_OR_UNKNOWN")
+            self.assertEqual(report["time_states"][slot]["state"],
+                             "DISABLED_UI_HINT")
+        self.assertIsNone(report["first_observed"])
+        self.assertFalse(report["can_select_time"])
+        self.assertFalse(report["can_submit"])
+        # Diagnostics may preserve both class tokens but must not assert vacancy.
+        data = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
+                "times": []}
+        for slot in SLOTS:
+            data["times"].append({
+                "slot": slot, "count": 1, "truncated": False,
+                "nodes": [{"tag": "div", "control_tag": "div", "role": None,
+                           "disabled_ui_hint": True, "aria_selected": False,
+                           "checked": False, "mixed_slot_context": False,
+                           "status_hints": [],
+                           "class_hints": ["time-box2", "book", "disabled",
+                                           "reserving"]}]})
+        clean = validate_evidence(data)
+        self.assertEqual(clean["times"][0]["nodes"][0]["class_hints"],
+                         ["book", "disabled", "reserving", "time-box2"])
+        self.assertTrue(clean["times"][0]["nodes"][0]["disabled_ui_hint"])
 
     def test_evidence_allows_only_status_class_hints(self):
         data = {"host": "spms.ncl.edu.tw", "room_label_candidates": 1,
