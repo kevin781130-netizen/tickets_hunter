@@ -58,7 +58,7 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn('exactLabel(el.innerText)', js)
         self.assertIn('exactLabel(el.value)', js)
         self.assertIn('const button = cta("預約")', js)
-        self.assertIn('return exactOne(matches.filter', js)
+        self.assertIn('const leaf = exactOne(matches.filter', js)
         self.assertIn('if (!summary()) return result("SUMMARY_MISMATCH")', js)
 
     def test_spaced_label_preserves_single_submit_guard(self):
