@@ -77,7 +77,7 @@ def probe_script(day, slot=None):
     return PROBE_JS.replace("__NEEDLES__", values)
 
 
-async def inspect(day, slot):
+async def inspect(day, priorities):
     # Delayed import permits offline stdlib tests without browser dependencies.
     import zendriver as uc
 
@@ -92,35 +92,45 @@ async def inspect(day, slot):
         current_url = await tab.evaluate("location.href")
         if urlsplit(current_url).hostname != NCL_HOST:
             raise RuntimeError("Not on the official NCL reservation host")
-        result = await tab.evaluate(probe_script(day, slot))
+        # Inspect all time windows once, then apply preference order locally.
+        result = await tab.evaluate(probe_script(day))
         if not isinstance(result, dict) or result.get("host") != NCL_HOST:
             raise RuntimeError("DOM probe did not return a verified result")
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        from ncl_openlab_guard import assess_probe
+        from ncl_openlab_slots import plan_time_slots
 
-        checks = {}
-        for requested_slot in (slot,) if slot else SLOTS:
-            checks[requested_slot] = assess_probe(result, day, requested_slot)
-        print(json.dumps({"dry_run_assessment": checks}, ensure_ascii=False, indent=2))
-        print("僅供選位辨識：OBSERVED_ONLY 不是空位或可預約證明。")
+        report = plan_time_slots(result, day, priorities)
+        print(json.dumps({"time_slot_priority_plan": report}, ensure_ascii=False, indent=2))
+        print("僅供時段偵測：OBSERVED_NOT_VERIFIED 不代表有空位。")
         print("唯讀檢查完成：沒有點選、提交預約或自動重新整理。")
     finally:
         await browser.stop()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="國圖音樂創作室唯讀選位偵測")
+    parser = argparse.ArgumentParser(description="國圖音樂創作室唯讀時段偵測")
     parser.add_argument(
         "--date", type=date.fromisoformat, default=next_open_date(),
         help="目標日期 YYYY-MM-DD（預設台灣今天 +7 天）",
     )
-    parser.add_argument(
+    preferences = parser.add_mutually_exclusive_group()
+    preferences.add_argument(
         "--slot", choices=SLOTS, default=None,
-        help="只偵測指定時段；未提供則偵測所有時段",
+        help="單一優先時段（保留舊版相容性）",
+    )
+    preferences.add_argument(
+        "--slots", default=None,
+        help="逗號分隔的時段優先順序，例如 17:00-20:00,13:00-16:00",
     )
     args = parser.parse_args()
-    print(f"目標：{args.date.isoformat()}｜{ROOM_NAME}｜{args.slot or '全部時段'}")
-    asyncio.run(inspect(args.date, args.slot))
+    from ncl_openlab_slots import parse_slot_priority
+
+    try:
+        priorities = parse_slot_priority(args.slot if args.slot is not None else args.slots)
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(f"目標：{args.date.isoformat()}｜{ROOM_NAME}｜時段優先序：{', '.join(priorities)}")
+    asyncio.run(inspect(args.date, priorities))
 
 
 if __name__ == "__main__":
