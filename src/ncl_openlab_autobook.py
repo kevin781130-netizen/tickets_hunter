@@ -115,10 +115,25 @@ ACTION_JS = r"""(() => {
   if (task.phase === "submit") {
     if (window.__nclOneShotSubmit === true) return result("ALREADY_SUBMITTED");
     if (!summary()) return result("SUMMARY_MISMATCH");
-    const button = cta("預約");
-    if (!button || disabled(button)) return result("SUBMIT_NOT_ACTIONABLE");
-    window.__nclOneShotSubmit = true; // Never duplicate a final submit on this page.
-    button.click(); return result("CLICKED_ONCE");
+    // Exact markup from the live confirmation screen. Never reuse dynamic IDs.
+    const buttons = from("button#gobook.submit-circle-button");
+    const button = exactOne(buttons);
+    if (!button || disabled(button) ||
+        cleanText(button).replace(/\\s+/g, "") !== "預約")
+      return result("SUBMIT_NOT_ACTIONABLE");
+    // These are the public target date and slot, NOT the dynamic session IDs.
+    if (button.getAttribute("data-param2") !== task.isoDate ||
+        button.getAttribute("data-param5") !== task.slot)
+      return result("SUBMIT_TARGET_MISMATCH");
+    const bounds = button.getBoundingClientRect();
+    const x = bounds.left + bounds.width / 2;
+    const y = bounds.top + bounds.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!Number.isFinite(x) || !Number.isFinite(y) ||
+        !hit || (hit !== button && !button.contains(hit)))
+      return result("SUBMIT_BUTTON_OCCLUDED");
+    window.__nclOneShotSubmit = true;
+    return {code: "READY_FOR_POINTER_CLICK", x, y};
   }
   if (task.phase === "success") {
     const display = String(document.body.innerText || "");
@@ -142,7 +157,8 @@ def action_script(phase, day, slot, mode="music"):
         raise ValueError("invalid slot for requested room")
     room = ROOM if mode == "music" else "個人直播室"
     data = {"phase": phase, "shortDate": day.strftime("%m/%d"),
-            "fullDate": day.strftime("%Y/%m/%d"), "room": room,
+            "fullDate": day.strftime("%Y/%m/%d"),
+            "isoDate": day.isoformat(), "room": room,
             "slot": slot, "mode": mode}
     return ACTION_JS.replace("__TASK__", json.dumps(data, ensure_ascii=False))
 
@@ -182,6 +198,39 @@ async def read_action(tab, phase, day, slot, mode="music"):
     }:
         raise RuntimeError("INVALID_ACTION_RESULT")
     return response["code"]
+
+
+async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
+    """Validate the exact #gobook target, then dispatch ONE native pointer click.
+
+    If the click times out or its outcome is uncertain, never submit again.
+    Merely dispatching the click does not prove a completed reservation.
+    """
+    if not await at_official_host(tab):
+        return "NOT_OFFICIAL_NCL_HOST"
+    for i in range(attempts):
+        raw = await tab.evaluate(action_script("submit", day, slot, mode))
+        if not isinstance(raw, dict) or not isinstance(raw.get("code"), str):
+            return "INVALID_SUBMIT_RESULT"
+        code = raw["code"]
+        if code == "READY_FOR_POINTER_CLICK":
+            x, y = raw.get("x"), raw.get("y")
+            if (isinstance(x, bool) or isinstance(y, bool) or
+                    not isinstance(x, (int, float)) or
+                    not isinstance(y, (int, float)) or
+                    not (0 < x < 10000 and 0 < y < 10000)):
+                return "INVALID_SUBMIT_COORDINATES"
+            try:
+                await tab.mouse_click(float(x), float(y))
+            except Exception:
+                # A failed mouse call may still have reached the site.
+                return "SUBMIT_OUTCOME_UNKNOWN_DO_NOT_RETRY"
+            return "CLICKED_ONCE"
+        if code in ("SUBMIT_NOT_ACTIONABLE", "SUMMARY_MISMATCH") and i < attempts - 1:
+            await asyncio.sleep(0.2)
+            continue
+        return code
+    return "SUBMIT_NOT_ACTIONABLE"
 
 
 async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
@@ -253,7 +302,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False, mode="music"
         # The final click is authorized only by --auto-submit.
         if not auto_submit:
             return "PREVIEW_STOPPED_BEFORE_SUBMIT"
-        code = await attempt_stage(tab, "submit", day, chosen_slot, attempts=8, mode=mode)
+        code = await submit_once_with_pointer(tab, day, chosen_slot, mode=mode, attempts=8)
         print("submit: " + code)
         if code != "CLICKED_ONCE":
             return "BLOCKED_" + code
