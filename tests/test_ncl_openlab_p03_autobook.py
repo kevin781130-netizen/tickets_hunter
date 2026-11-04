@@ -33,7 +33,8 @@ class P03ModeTests(unittest.TestCase):
     def test_room_prefix_exact_p03_not_neighbor_room(self):
         js = app.action_script("room", DAY, SLOT, "p03")
         self.assertIn(r"/^P03(?:\s|$)/", js)
-        self.assertIn('from(".space-box1")', js)
+        self.assertIn('".space-box1, .space-box2, .space-box3"', js)
+        self.assertIn('task.mode === "p03"', js)
         self.assertNotIn('querySelectorAll("*")', js)
         self.assertNotIn('task.roomId', js)
 
