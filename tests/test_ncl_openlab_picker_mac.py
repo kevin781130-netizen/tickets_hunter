@@ -125,6 +125,25 @@ class GuiToBackendTests(unittest.TestCase):
         self.assertIn("--fallback-any-slot", cmd)
         self.assertEqual(Path(cwd), SRC.parent)
 
+    def test_unverified_room_inspection_launches_only_readonly_diagnostic(self):
+        picker = self.picker([])
+        picker.room = types.SimpleNamespace(get=lambda: "discussion")
+        with patch.object(self.ui, "launch_booking_command") as start:
+            self.ui.BookingPicker._inspect_room(picker)
+        start.assert_called_once()
+        cmd, _cwd = start.call_args.args
+        self.assertTrue(str(cmd[1]).endswith("ncl_openlab_room_diag.py"))
+        self.assertEqual(cmd[-2:], ["--room", "discussion"])
+        self.assertNotIn("--auto-submit", cmd)
+        self.assertNotIn("--accept-terms", cmd)
+
+    def test_verified_room_diagnostic_does_not_start_second_browser(self):
+        picker = self.picker([])
+        picker.room = types.SimpleNamespace(get=lambda: "music")
+        with patch.object(self.ui, "launch_booking_command") as start:
+            self.ui.BookingPicker._inspect_room(picker)
+        start.assert_not_called()
+
     def test_gui_button_refuses_start_without_submit_consent(self):
         with patch.object(self.ui, "launch_booking_command") as start:
             self.ui.BookingPicker._launch(
