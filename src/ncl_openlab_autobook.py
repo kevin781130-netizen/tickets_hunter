@@ -22,7 +22,7 @@ from reservation_common import (
 from reservation_browser import wait_until_browser_manually_closed
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
-PHASES = ("date", "room", "slot", "next", "submit", "success")
+PHASES = ("date", "room", "slot", "verify-slot", "next", "submit", "success")
 P03_SLOTS = tuple(f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 20))
 ROOM_MODES = ("music", "p03")
 ACTION_JS = r"""(() => {
@@ -85,6 +85,13 @@ ACTION_JS = r"""(() => {
       return result("SLOT_NOT_BOOK_CLASS");
     if (chosen(tile, "slot")) return result("ALREADY_SELECTED");
     tile.click(); return result("CLICKED");
+  }
+  if (task.phase === "verify-slot") {
+    if (!chosen(dateTile()) || !chosen(roomTile())) return result("CONTEXT_NOT_SELECTED");
+    const tile = slotTile();
+    if (!tile) return result("SLOT_NOT_UNIQUE");
+    if (disabled(tile)) return result("SLOT_DISABLED");
+    return result(chosen(tile, "slot") ? "ALREADY_SELECTED" : "SLOT_NOT_SELECTED");
   }
   const cta = (word) => {
     // NCL's round booking control may render with spacing: 預 約.
@@ -276,7 +283,7 @@ async def read_action(tab, phase, day, slot, mode="music"):
         "WRONG_HOST", "DATE_NOT_UNIQUE", "DATE_DISABLED", "ALREADY_SELECTED",
         "CLICKED", "DATE_NOT_SELECTED", "ROOM_NOT_UNIQUE", "ROOM_DISABLED",
         "CONTEXT_NOT_SELECTED", "SLOT_NOT_UNIQUE", "SLOT_DISABLED",
-        "SLOT_NOT_BOOK_CLASS", "TARGET_NOT_SELECTED",
+        "SLOT_NOT_BOOK_CLASS", "SLOT_NOT_SELECTED", "TARGET_NOT_SELECTED",
         "NEXT_NOT_ACTIONABLE", "ALREADY_SUBMITTED", "SUMMARY_MISMATCH",
         "SUBMIT_NOT_ACTIONABLE", "CLICKED_ONCE", "SUCCESS_PAGE_MATCHED",
         "FAILURE_SHOWN", "SUCCESS_NOT_VERIFIED", "UNKNOWN_PHASE"
@@ -395,6 +402,20 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
                                    attempts=2 if fast_probe else 8, mode=mode)
         print(f"slot {slot}: {code}")
         if code in ("CLICKED", "ALREADY_SELECTED"):
+            if code == "CLICKED" and mode == "p03":
+                # Unavailable P03 tiles may absorb clicks without selecting.
+                # Read only the exact selected state before proceeding.
+                verified = "SLOT_NOT_SELECTED"
+                for _ in range(4):
+                    await asyncio.sleep(0.15)
+                    verified = await read_action(tab, "verify-slot", day, slot, mode)
+                    if verified == "ALREADY_SELECTED":
+                        break
+                    if verified not in ("SLOT_NOT_SELECTED", "SLOT_NOT_UNIQUE"):
+                        break
+                if verified != "ALREADY_SELECTED":
+                    print(f"slot {slot}: NOT_SELECTED_SKIPPED")
+                    continue
             chosen_slot = slot
             break
         if code not in ("SLOT_DISABLED", "SLOT_NOT_BOOK_CLASS", "SLOT_NOT_UNIQUE"):
@@ -582,7 +603,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                         return "CONFIRMED_SLOT_ID_UNKNOWN_STOP"
                     confirmed_slots.append(actual)
             return "TWO_BOOKINGS_CONFIRMED"
-        candidates = (ordered_slot_fallback(priorities, allowed)
+        candidates = (tuple(dict.fromkeys((*priorities, *allowed)))
                       if fallback_any_slot else priorities)
         if fallback_any_slot:
             print("自動改選已啟用：僅限相同日期及房間；"
