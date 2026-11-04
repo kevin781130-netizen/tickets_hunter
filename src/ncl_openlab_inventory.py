@@ -183,7 +183,7 @@ async def capture(tab):
     return await tab.evaluate(INVENTORY_JS)
 
 
-async def run(report_dir):
+async def run(report_dir, guided=False):
     import zendriver as uc
 
     browser = await uc.start(headless=False)
@@ -192,23 +192,45 @@ async def run(report_dir):
         tab = await browser.get(NCL_URL)
         print("在此瀏覽器手動登入，並自行切換到想盤點的房型選擇畫面。")
         print("程式只讀取畫面上可見的類別與時段標籤，不會點擊、刷新或送出。")
-        while True:
-            answer = await asyncio.to_thread(
-                input, "到達房型畫面後按 Enter 擷取；輸入 q 結束：")
-            if answer.strip().lower() == "q":
+        categories = ([c for c in get_registry().categories
+                       if c.booking_mode != "ONSITE_ONLY"] if guided else [None])
+        stop = False
+        for category in categories:
+            if stop:
                 break
-            summary = summarize_inventory(await capture(tab))
-            snapshots.append(summary)
-            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            while True:
+                prompt = (f"請手動切換至「{category.label}」的房型／時段頁，按 Enter 唯讀擷取；"
+                          "輸入 s 跳過、q 結束：" if category else
+                          "到達房型畫面後按 Enter 擷取；輸入 q 結束：")
+                answer = await asyncio.to_thread(input, prompt)
+                if answer.strip().lower() == "q":
+                    stop = True
+                    break
+                if guided and answer.strip().lower() == "s":
+                    break
+                summary = summarize_inventory(await capture(tab))
+                if category:
+                    # Operator-selected label is not proof that the DOM belongs to it.
+                    summary["operator_category"] = category.key
+                    summary["category_association"] = "OPERATOR_SELECTED_NOT_VERIFIED"
+                snapshots.append(summary)
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+                if guided:
+                    break
     finally:
         folder = Path(report_dir)
         folder.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(TAIPEI_TZ).strftime("%Y%m%d_%H%M%S")
         drafts = {}
+        categorized_drafts = {}
         for snap in snapshots:
-            drafts.update(build_drafts(snap))
+            these = build_drafts(snap)
+            drafts.update(these)
+            if snap.get("operator_category"):
+                categorized_drafts[snap["operator_category"]] = these
         out = folder / f"ncl_inventory_{stamp}.json"
-        out.write_text(json.dumps({"snapshots": snapshots, "config_drafts": drafts},
+        out.write_text(json.dumps({"snapshots": snapshots, "config_drafts": drafts,
+                                   "categorized_drafts": categorized_drafts},
                                   ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"盤點結果已寫入：{out}")
         print("草稿含 TODO，需人工補齊並實機驗證後，才能併入 ncl_openlab_rooms.json。")
@@ -219,8 +241,10 @@ async def run(report_dir):
 def main():
     parser = argparse.ArgumentParser(description="國圖房型唯讀盤點與流程分類")
     parser.add_argument("--report-dir", default="ncl_reports")
+    parser.add_argument("--guided", action="store_true",
+                        help="逐一盤點 12 個線上候選類別；手動導覽且僅讀 DOM，排除現場借用")
     args = parser.parse_args()
-    asyncio.run(run(args.report_dir))
+    asyncio.run(run(args.report_dir, guided=args.guided))
 
 
 if __name__ == "__main__":
