@@ -1,4 +1,4 @@
-"""Offline validation for the Windows date + ordered two-slot picker."""
+"""Offline validation for the Windows/macOS date + ordered two-slot picker."""
 import ast
 import sys
 import unittest
@@ -130,8 +130,12 @@ class PickerModelTests(unittest.TestCase):
                    if isinstance(node, ast.ClassDef)]
         self.assertIn("BookingPicker", classes)
         self.assertIn("messagebox.askyesno", source)
-        self.assertIn("subprocess.Popen", source)
-        self.assertIn("CREATE_NEW_CONSOLE", source)
+        self.assertIn("launch_booking_command(command, entry.parent.parent)", source)
+        self.assertIn("from ncl_openlab_launcher import launch_booking_command", source)
+        launch_source = (SRC / "ncl_openlab_launcher.py").read_text(encoding="utf-8")
+        self.assertIn("subprocess.Popen", launch_source)
+        self.assertIn("CREATE_NEW_CONSOLE", launch_source)
+        self.assertIn("osascript", launch_source)
         self.assertIn("self.slots.append(value)", source)
         self.assertIn("self.slots.remove(value)", source)
         self.assertIn("len(self.slots) >= 2", source)
