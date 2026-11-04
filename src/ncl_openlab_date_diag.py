@@ -42,9 +42,16 @@ DIAG_JS = r"""(() => {
   const rooms = Array.from(document.querySelectorAll(
     ".space-box1, .space-box2, .space-box3")).filter(visible);
   const roomCode = (el) => {
-    const text = clean(el);
-    const found = text.match(/^P0[123](?=\s|$)/);
-    return found ? found[0] : null;
+    // Actual P03 room label uses a child span with exact bilingual code attrs.
+    // Text at the beginning of the parent may instead be a Chinese heading.
+    const labels = Array.from(el.querySelectorAll(
+      "span.space-num2[data-en][data-zh]"));
+    if (labels.length !== 1) return null;
+    const label = labels[0];
+    const en = label.getAttribute("data-en");
+    const zh = label.getAttribute("data-zh");
+    return ["P01", "P02", "P03"].includes(en) && en === zh &&
+      clean(label) === en ? en : null;
   };
   // Inspect only whitelisted room-code presence; never return page text,
   // attribute contents, HTML, account details, or arbitrary identifiers.
