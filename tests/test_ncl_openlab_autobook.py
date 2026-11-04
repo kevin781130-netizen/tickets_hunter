@@ -19,8 +19,11 @@ SLOT = "09:00-12:00"
 
 class AutoBookTests(unittest.TestCase):
     def test_all_steps_include_real_ui_selection_and_submit(self):
-        self.assertEqual(PHASES, ("date", "room", "slot", "verify-slot",
-                                  "next", "submit", "success"))
+        self.assertEqual(PHASES, ("date", "verify-date", "room", "slot",
+                                  "verify-slot", "next", "submit", "success"))
+        date_verify = action_script("verify-date", DAY, SLOT, "music")
+        self.assertIn('task.phase === "verify-date"', date_verify)
+        self.assertIn('return result(chosen(tile) ? "ALREADY_SELECTED"', date_verify)
         # The P03 selection verification must remain read-only.
         verify = action_script("verify-slot", DAY, SLOT, "music")
         self.assertIn('task.phase === "verify-slot"', verify)
