@@ -148,3 +148,34 @@ cd ~/ncl-openlab && .venv/bin/python src/ncl_openlab_picker.py
 
 警告：面板中的「確認設定並開啟預約瀏覽器」在授權後會啟動
 真實預約程式；**不要為了 UI 測試按下正式預約確認**。
+
+## 第六刀｜偏好時段不足時自動改選並正式送出
+
+參考 <https://github.com/rommelniebres/Booking-Bot> 的「偏好時段→可用候補」模式，
+**不複製其 Playwright/Node 相依套件或網站特定操作**；直接沿用專案現有的
+`zendriver`、`ncl_openlab_slots.py` 與 `ncl_openlab_autobook.py`。
+
+- 原 Tkinter 面板新增預設勾選的「偏好時段已滿時自動改選同日同房間其他時段」。
+  使用者可自行取消；最終預約仍須獨立勾選「我明確授權正式送出預約」、
+  並在面板的確認對話框再次確認，才會呼叫真正後端。
+- `--fallback-any-slot` 預設關閉（純 CLI 模式），需搭配 `--auto-submit`。
+  預約日期和房間**絕不改變**；只有時段可改選。音樂創作室支援原三個
+  三小時時段，P03 支援 09:00–20:00 的 11 個一小時時段。
+- 單筆預約優先嘗試使用者選中的時段；若網站顯示不可用、不能選取，
+  依時間順序嘗試其他時段。每一候補都透過原本的官網 DOM 選擇驗證，
+  不是基於歷史畫面或上傳截圖的靜態判斷。
+- P03 在點選時段後增加**唯讀**選取驗證；點下去沒有變成確實選取的
+  時段會被略過，不能進入最後送出。
+- 雙筆預約先盡可能保留第二個使用者偏好時段，並且不重複使用第一筆
+  已確認成功的時段。第一筆如果提交後成功與否不明，立刻停止，不送第二筆。
+- 最終按鍵送出機制、條款、人工作業登入、成功頁確認與不重複送出
+  均重用既有程式碼，不繞過驗證或 API。
+- 追加 `tests/test_ncl_openlab_autofallback.py`（11 個離線案例），
+  檢驗偏好順序、同房間完整時段庫、雙筆不重複、失敗防重試與 P03 選取防呆。
+  **尚待 Mac 實跑；不得視為已實際預約成功。**
+
+Mac 離線驗證（不開瀏覽器、不送預約）：
+
+```bash
+cd ~/ncl-openlab && git pull --ff-only && .venv/bin/python -m py_compile src/ncl_openlab_autobook.py src/ncl_openlab_picker.py src/ncl_openlab_picker_model.py src/ncl_openlab_slots.py && .venv/bin/python -m unittest discover -s tests -p 'test_ncl_openlab_*.py' -q
+```
