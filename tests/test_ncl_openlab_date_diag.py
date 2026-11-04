@@ -54,7 +54,10 @@ class SelectionDiagnosticsTests(unittest.TestCase):
     def test_read_only_dom_and_explicit_date(self):
         script = diagnostic_script(DAY)
         self.assertIn("11/11", script)
-        self.assertIn(r'^P0[123](?=\s|$)', script)
+        self.assertIn('"span.space-num2[data-en][data-zh]"', script)
+        self.assertIn('label.getAttribute("data-en")', script)
+        self.assertIn('label.getAttribute("data-zh")', script)
+        self.assertIn('clean(label) === en', script)
         self.assertIn('roomCode(el) === "P03"', script)
         self.assertIn('roomCodes = ["P01", "P02", "P03"]', script)
         for forbidden in (".click(", ".submit(", "fetch(", "XMLHttpRequest",
@@ -164,6 +167,16 @@ class MultiTabDiagnosticsTests(unittest.TestCase):
         js = diagnostic_script(DAY)
         self.assertIn('".space-box1, .space-box2, .space-box3"', js)
         self.assertIn('roomCodes.map(code', js)
+
+    def test_only_exact_bilingual_room_code_can_match(self):
+        script = diagnostic_script(DAY)
+        self.assertIn('if (labels.length !== 1) return null', script)
+        self.assertIn('en === zh', script)
+        self.assertIn('["P01", "P02", "P03"].includes(en)', script)
+        self.assertIn('roomCode(el) === "P03"', script)
+        # No raw room label or account data may be returned from diagnosis.
+        self.assertNotIn('innerHTML', script)
+        self.assertNotIn('outerHTML', script)
 
     def test_invalid_room_class_counts_fail_closed(self):
         item = data()
