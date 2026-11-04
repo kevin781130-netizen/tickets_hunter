@@ -14,6 +14,12 @@ from urllib.parse import urlsplit
 from ncl_openlab_guard import NCL_HOST, ROOM, VALID_SLOTS
 from ncl_openlab_probe import NCL_URL, TAIPEI_TZ
 from ncl_openlab_slots import parse_slot_priority
+from reservation_common import (
+    release_datetime as shared_release_datetime,
+    seconds_until as shared_seconds_until,
+    has_retry_budget,
+)
+from reservation_browser import wait_until_browser_manually_closed
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
 PHASES = ("date", "room", "slot", "next", "submit", "success")
@@ -184,18 +190,13 @@ def parse_p03_priorities(raw):
 
 
 def release_time(day):
-    if not isinstance(day, date) or isinstance(day, datetime):
-        raise ValueError("invalid target day")
-    # Seven days before target. 00:00 is a user-observed timing assumption,
-    # not a confirmed NCL time-of-day guarantee.
-    return datetime.combine(day - timedelta(days=7), time.min, tzinfo=TAIPEI_TZ)
+    # Seven-day horizon remains NCL-specific. The reusable helper owns math.
+    # Midnight is user-observed, not a verified guarantee by the site.
+    return shared_release_datetime(day, days_before=7, tz=TAIPEI_TZ)
 
 
 def seconds_until_release(day, now=None):
-    t = now or datetime.now(TAIPEI_TZ)
-    if t.tzinfo is None:
-        raise ValueError("now must have timezone")
-    return (release_time(day) - t.astimezone(TAIPEI_TZ)).total_seconds()
+    return shared_seconds_until(release_time(day), now=now)
 
 
 # One-shot lobby navigation from actual NCL entry markup. Consent is opt-in.
@@ -495,7 +496,8 @@ async def book_with_bounded_retries(
         if outcome not in RETRYABLE_BEFORE_SUBMIT:
             return outcome
         now = loop.time()
-        if now + retry_interval > deadline:
+        if not has_retry_budget(now=now, deadline=deadline,
+                                interval=retry_interval):
             return "RELEASE_WINDOW_EXHAUSTED_" + outcome
         print(f"第 {attempt} 次：新日期或指定時段尚未可預約，"
               f"{retry_interval} 秒後重新整理。")
@@ -503,38 +505,6 @@ async def book_with_bounded_retries(
         status = await refresh_booking_grid(tab, mode=mode, accept_terms=accept_terms)
         if status != "GRID_READY":
             return "RETRY_ENTRY_BLOCKED_" + status
-
-
-async def wait_until_browser_manually_closed(browser, *, interval=1.0):
-    """Keep result page alive without requesting Enter or closing Chrome.
-
-    Only monitor the locally controlled browser via DevTools; no website
-    refresh, booking requests, or new UI actions are made after completion.
-    Chromium can keep its parent process running after the last visible
-    window closes, so also look for remaining page targets.
-    """
-    no_page_checks = 0
-    while True:
-        if browser.stopped:
-            return
-        try:
-            # Zendriver's target-list call only queries the browser itself.
-            targets = await browser._get_targets()
-            if any(getattr(target, "type_", None) == "page"
-                   for target in targets):
-                no_page_checks = 0
-            else:
-                no_page_checks += 1
-                if no_page_checks >= 3:
-                    return
-        except Exception:
-            # Closing the browser can tear down CDP before the OS process
-            # exits. A lost DevTools connection is therefore terminal.
-            connection = getattr(browser, "connection", None)
-            if browser.stopped or (
-                    connection is not None and connection.closed):
-                return
-        await asyncio.sleep(interval)
 
 
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
