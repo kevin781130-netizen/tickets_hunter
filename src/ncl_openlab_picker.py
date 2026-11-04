@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Windows Tkinter launcher for the NCL booking workflow.
+"""Windows/macOS Tkinter launcher for the NCL booking workflow.
 
 Manual browser login remains mandatory. No network calls or credentials are
 handled by this window. Booking starts only after an explicit confirmation.
 """
 import calendar
-import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
-import subprocess
 import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from ncl_openlab_launcher import launch_booking_command
 from ncl_openlab_picker_model import (
     ROOM_CHOICES, TAIPEI, available_slots, build_booking_args,
     console_python, release_datetime,
@@ -285,15 +284,16 @@ class BookingPicker(tk.Tk):
         entry = Path(__file__).resolve().with_name("ncl_openlab_autobook.py")
         command = [console_python(sys.executable), str(entry), *argv]
         try:
-            if os.name == "nt":
-                subprocess.Popen(command, cwd=str(entry.parent.parent),
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
-            else:
-                raise OSError("此啟動器目前僅支援 Windows 新主控台")
-        except OSError as exc:
+            launch_booking_command(command, entry.parent.parent)
+        except (OSError, ValueError) as exc:
             messagebox.showerror("無法啟動", str(exc))
             return
-        messagebox.showinfo("已啟動", "已開啟獨立終端執行預約。\n請登入國圖，再回終端按 Enter。")
+        messagebox.showinfo(
+            "請檢查獨立終端",
+            "已要求系統開啟獨立預約終端。\\n"
+            "請先確認新終端顯示日期與房間，再手動登入國圖並按 Enter。\\n"
+            "這只代表已要求啟動，不代表預約成功。"
+        )
 
 
 def main():
