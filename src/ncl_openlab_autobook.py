@@ -413,18 +413,26 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
         print(f"slot {slot}: {code}")
         if code in ("CLICKED", "ALREADY_SELECTED"):
             if code == "CLICKED" and mode == "p03":
-                # Unavailable P03 tiles may absorb clicks without selecting.
-                # Read only the exact selected state before proceeding.
+                # Live P03 DOM: a successfully chosen hour becomes
+                # .time-box.book[data-param1=the exact hour].
+                # Site updates can finish after the earlier 0.6s budget.
+                # Bounded read-only rechecks: never click or submit again.
                 verified = "SLOT_NOT_SELECTED"
-                for _ in range(4):
-                    await asyncio.sleep(0.15)
+                for _ in range(12):
+                    await asyncio.sleep(0.25)
                     verified = await read_action(tab, "verify-slot", day, slot, mode)
                     if verified == "ALREADY_SELECTED":
                         break
-                    if verified not in ("SLOT_NOT_SELECTED", "SLOT_NOT_UNIQUE"):
+                    if verified not in ("SLOT_NOT_SELECTED", "SLOT_NOT_UNIQUE",
+                                       "CONTEXT_NOT_SELECTED"):
                         break
+                print(f"slot {slot}: VERIFY_{verified}")
+                if verified in ("CONTEXT_NOT_SELECTED", "SLOT_NOT_UNIQUE"):
+                    return "BLOCKED_" + verified
                 if verified != "ALREADY_SELECTED":
                     print(f"slot {slot}: NOT_SELECTED_SKIPPED")
+                    if verified not in ("SLOT_NOT_SELECTED", "SLOT_DISABLED"):
+                        return "BLOCKED_" + verified
                     continue
             chosen_slot = slot
             break
