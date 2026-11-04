@@ -109,3 +109,42 @@ cd ~/ncl-openlab && git pull --ff-only && .venv/bin/python -m unittest discover 
 ```bash
 cd ~/ncl-openlab && .venv/bin/python src/ncl_openlab_probe.py
 ```
+
+## 第五刀｜沿用原 Tkinter 面板，接通 macOS Terminal
+
+- `src/ncl_openlab_picker.py` 的「確認設定並開啟預約瀏覽器」按鈕，
+  **不再拒絕 macOS**，仍先透過 `build_booking_args` 檢查日期、
+  空間、1–2 個時段與明確送出授權；確認視窗同意後呼叫
+  `ncl_openlab_launcher.launch_booking_command`。
+- Windows 保留 `subprocess.Popen(..., CREATE_NEW_CONSOLE)` 行為。
+  macOS 透過系統 `osascript` 要求 Terminal.app 開啟**獨立互動終端**，
+  用目前 Python 直譯器執行原本的 `ncl_openlab_autobook.py`。
+  路徑與參數分別以 `shlex.quote / shlex.join` 和 AppleScript
+  字串轉義處理，不拼接未驗證的 shell 參數。
+- Mac 終端在後端結束後顯示 `NCL_PROCESS_EXIT` 並等待使用者按 Enter，
+  避免關閉視窗而看不到結果；Chrome 仍由原後端保留，直到手動關閉。
+  Terminal 的啟動成功**不是**預約成功。
+- `tests/test_ncl_openlab_picker_mac.py` 新增 7 個離線測試，涵蓋
+  路徑轉義、Mac/Windows 分流、平台不支援/啟動失敗，以及真正的 GUI
+  按鈕方法到預約後端 CLI 的雙時段授權與未授權拒絕。
+- 已有的 GUI 靜態測試改查新啟動器，不再誤認 GUI 檔案內必須直接
+  呼叫 Windows-only API。
+- 先前 Mac 187 項測試已由使用者確認 PASS，本刀預期 **194 項**，
+  **仍待 Mac 實跑確認**。Windows 與 Mac 的 GUI → 瀏覽器 → 官方
+  預約成功端到端測試**尚未完成**。
+- 此刀未修改 `main`、封版 RC 或 `ncl_openlab_autobook.py`。
+
+Mac 離線 Gate（不打開 UI、不送預約）：
+
+```bash
+cd ~/ncl-openlab && git pull --ff-only && .venv/bin/python -m py_compile src/ncl_openlab_picker.py src/ncl_openlab_launcher.py && .venv/bin/python -m unittest discover -s tests -p "test_ncl_openlab_*.py" -q
+```
+
+通過後可**單獨**開啟原前端，以確認真正的 Mac GUI：
+
+```bash
+cd ~/ncl-openlab && .venv/bin/python src/ncl_openlab_picker.py
+```
+
+警告：面板中的「確認設定並開啟預約瀏覽器」在授權後會啟動
+真實預約程式；**不要為了 UI 測試按下正式預約確認**。
