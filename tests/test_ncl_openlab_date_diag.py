@@ -1,11 +1,16 @@
 """Offline tests for non-booking, allowlisted date/room DOM diagnostics."""
+import asyncio
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from ncl_openlab_date_diag import diagnostic_script, validate_diagnostic
+from ncl_openlab_date_diag import (
+    collect_browser_diagnostics, diagnostic_script, validate_diagnostic,
+)
 
 DAY = date(2026, 11, 11)
 
@@ -13,7 +18,8 @@ DAY = date(2026, 11, 11)
 def data():
     return {
         "host": "spms.ncl.edu.tw", "status": "READ_ONLY",
-        "expected_date": "11/11", "date_grid_total": 7,
+        "expected_date": "11/11", "iframe_count": 0,
+        "date_grid_total": 7,
         "date_match_count": 1, "room_grid_total": 3,
         "p03_match_count": 1,
         "date_flags": [{
@@ -74,6 +80,72 @@ class SelectionDiagnosticsTests(unittest.TestCase):
         result = validate_diagnostic(bad, DAY)
         self.assertEqual(result["date_match_count"], 0)
         self.assertEqual(result["date_flags"], [])
+
+
+class MultiTabDiagnosticsTests(unittest.TestCase):
+    def test_scan_actual_ncl_booking_tab_not_only_initial_page(self):
+        landing = data()
+        landing.update({
+            "iframe_count": 0, "date_grid_total": 0, "date_match_count": 0,
+            "date_flags": [], "room_grid_total": 0, "p03_match_count": 0,
+            "p03_flags": [],
+        })
+        outside = SimpleNamespace(
+            target=SimpleNamespace(url="https://example.org/"),
+            evaluate=AsyncMock(side_effect=AssertionError(
+                "never inspect tabs outside official NCL host")))
+        homepage = SimpleNamespace(
+            target=SimpleNamespace(url="https://spms.ncl.edu.tw/"),
+            evaluate=AsyncMock(return_value=landing))
+        booking = SimpleNamespace(
+            target=SimpleNamespace(
+                url="https://spms.ncl.edu.tw/NLT/co/media_discussion.jsp"),
+            evaluate=AsyncMock(return_value=data()))
+        browser = SimpleNamespace(
+            tabs=[homepage, outside, booking], update_targets=AsyncMock())
+        result = asyncio.run(collect_browser_diagnostics(browser, DAY))
+        browser.update_targets.assert_awaited_once()
+        outside.evaluate.assert_not_awaited()
+        homepage.evaluate.assert_awaited_once()
+        booking.evaluate.assert_awaited_once()
+        self.assertTrue(result["date_grid_detected"])
+        self.assertEqual(result["total_open_tabs"], 3)
+        self.assertEqual(result["official_ncl_tabs"], 2)
+        self.assertEqual(result["pages"][0]["page_kind"], "other_ncl_page")
+        self.assertEqual(result["pages"][1]["tab_index"], 2)
+        self.assertEqual(result["pages"][1]["page_kind"], "booking")
+        self.assertEqual(result["pages"][1]["date_match_count"], 1)
+        self.assertNotIn("example.org", str(result))
+
+    def test_diagnostic_handles_no_official_tabs(self):
+        browser = SimpleNamespace(
+            tabs=[SimpleNamespace(
+                target=SimpleNamespace(url="about:blank"),
+                evaluate=AsyncMock())],
+            update_targets=AsyncMock())
+        result = asyncio.run(collect_browser_diagnostics(browser, DAY))
+        self.assertEqual(result["official_ncl_tabs"], 0)
+        self.assertFalse(result["date_grid_detected"])
+
+    def test_closed_tab_is_reported_without_raw_errors(self):
+        page = SimpleNamespace(
+            target=SimpleNamespace(
+                url="https://spms.ncl.edu.tw/NLT/co/media_discussion.jsp"),
+            evaluate=AsyncMock(side_effect=RuntimeError("private-value")))
+        browser = SimpleNamespace(tabs=[page], update_targets=AsyncMock())
+        result = asyncio.run(collect_browser_diagnostics(browser, DAY))
+        self.assertFalse(result["date_grid_detected"])
+        self.assertEqual(result["pages"][0]["status"], "READ_FAILED")
+        self.assertNotIn("private-value", str(result))
+
+    def test_iframe_count_is_only_allowlisted_number(self):
+        info = data()
+        info["iframe_count"] = 2
+        result = validate_diagnostic(info, DAY)
+        self.assertEqual(result["iframe_count"], 2)
+        info["iframe_count"] = "secret"
+        with self.assertRaises(ValueError):
+            validate_diagnostic(info, DAY)
 
 
 if __name__ == "__main__":
