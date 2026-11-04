@@ -44,13 +44,16 @@ ACTION_JS = r"""(() => {
     .filter(visible);
   const dateTile = () => exactOne(from(".date-box")
     .filter(el => cleanText(el).startsWith(task.shortDate)));
-  // Real P01 markup uses .space-box1; P03 must not be assumed to share
-  // that one CSS class. Search only known room-tile classes, and still
-  // require one exact P03 identity before any click or final submission.
-  const roomTile = () => exactOne(from(task.mode === "p03"
-    ? ".space-box1, .space-box2, .space-box3" : ".space-box1")
+  // Verified 2026-11-04 live P03 DOM:
+  // div#boxspace2.space-box1.selected > span.space-num2[data-en="P03"][data-zh="P03"].
+  // Room identity lives on a child attribute, NOT the start of parent innerText.
+  // Match the unique P03 child, its exact text, AND a unique parent room tile.
+  const p03Label = (el) => exactOne(Array.from(el.querySelectorAll(
+    'span.space-num2[data-en="P03"][data-zh="P03"]'))
+    .filter(label => cleanText(label) === "P03"));
+  const roomTile = () => exactOne(from(".space-box1")
     .filter(el => task.mode === "p03"
-      ? /^P03(?:\s|$)/.test(cleanText(el))
+      ? p03Label(el) !== null
       : cleanText(el).includes(task.room)));
   const slotTile = () => exactOne(from(task.mode === "p03"
     ? ".time-box[data-param1]" : ".time-box2[data-param1]")
