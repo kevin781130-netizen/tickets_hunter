@@ -47,3 +47,29 @@ def plan_time_slots(snapshot, target_day, priority=None):
         "can_select_time": False,
         "can_submit": False,
     }
+
+
+def ordered_slot_fallback(preferences, all_slots, *, target_index=0, confirmed=()):
+    """Prefer the user's target; then other times on the SAME room/day.
+
+    Preserve a second preferred slot for its own booking until alternatives
+    are exhausted. Never repeat a previously confirmed slot.
+    This is a pure ordering function; booking eligibility must be checked
+    again against the live, exact DOM before any action.
+    """
+    requested = tuple(preferences)
+    allowed = tuple(all_slots)
+    reserved = set(confirmed)
+    if (not requested or not allowed or len(set(allowed)) != len(allowed)
+            or len(set(requested)) != len(requested)
+            or any(s not in allowed for s in requested)
+            or any(s not in allowed for s in reserved)
+            or type(target_index) is not int
+            or not 0 <= target_index < len(requested)):
+        raise ValueError("invalid fallback slot configuration")
+    target = requested[target_index]
+    first = [target] if target not in reserved else []
+    backups = [s for s in allowed if s not in requested and s not in reserved]
+    remaining_requested = [s for s in requested
+                           if s != target and s not in reserved]
+    return tuple(first + backups + remaining_requested)
