@@ -46,6 +46,34 @@ DIAG_JS = r"""(() => {
     const found = text.match(/^P0[123](?=\s|$)/);
     return found ? found[0] : null;
   };
+  // Inspect only whitelisted room-code presence; never return page text,
+  // attribute contents, HTML, account details, or arbitrary identifiers.
+  const knownCodes = ["P01", "P02", "P03"];
+  const codeSignals = (text) => {
+    const normalized = String(text || "").normalize("NFKC");
+    return knownCodes.filter(code => new RegExp(
+      "(^|[^A-Za-z0-9])" + code + "(?![A-Za-z0-9])").test(normalized));
+  };
+  const tileSignals = (el) => {
+    const rendered = String(el.innerText || "");
+    const content = String(el.textContent || "");
+    const aria = String(el.getAttribute("aria-label") || "");
+    return {
+      classes: roomClasses.filter(c => el.classList.contains(c)),
+      selected: el.classList.contains("selected"),
+      rendered_has_text: Boolean(rendered.trim()),
+      content_has_text: Boolean(content.trim()),
+      rendered_codes_anywhere: codeSignals(rendered),
+      content_codes_anywhere: codeSignals(content),
+      aria_codes_anywhere: codeSignals(aria),
+      has_broadcast_label: (
+        rendered.includes("個人直播室") ||
+        content.includes("個人直播室")),
+      has_music_label: (
+        rendered.includes("音樂創作室") ||
+        content.includes("音樂創作室")),
+    };
+  };
   const matchedDates = dates.filter(el => clean(el).startsWith(target.shortDate));
   const matchedRooms = rooms.filter(el => roomCode(el) === "P03");
   const roomCodes = ["P01", "P02", "P03"];
@@ -59,6 +87,7 @@ DIAG_JS = r"""(() => {
     date_match_count: Math.min(matchedDates.length, 100),
     date_flags: matchedDates.slice(0, 3).map(flags),
     room_grid_total: Math.min(rooms.length, 100),
+    room_tile_signals: rooms.slice(0, 3).map(tileSignals),
     room_class_counts: Object.fromEntries(
       roomClasses.map(name => [name, Math.min(rooms.filter(
         el => el.classList.contains(name)).length, 100)])),
@@ -91,6 +120,34 @@ def validate_diagnostic(data, day):
         if type(value) is not int or not 0 <= value <= 100:
             raise ValueError("invalid DOM count")
         output[field] = value
+    signals = data.get("room_tile_signals")
+    if not isinstance(signals, list) or len(signals) != min(output["room_grid_total"], 3):
+        raise ValueError("invalid room tile signals")
+    output["room_tile_signals"] = []
+    class_allowlist = {"space-box1", "space-box2", "space-box3"}
+    codes_allowlist = {"P01", "P02", "P03"}
+    for row in signals:
+        if not isinstance(row, dict):
+            raise ValueError("invalid room tile row")
+        classes = row.get("classes")
+        if not isinstance(classes, list) or any(
+                type(v) is not str or v not in class_allowlist for v in classes):
+            raise ValueError("unknown room class")
+        result = {"classes": sorted(set(classes))}
+        for field in ("selected", "rendered_has_text", "content_has_text",
+                      "has_broadcast_label", "has_music_label"):
+            if type(row.get(field)) is not bool:
+                raise ValueError("invalid room boolean")
+            result[field] = row[field]
+        for field in ("rendered_codes_anywhere", "content_codes_anywhere",
+                      "aria_codes_anywhere"):
+            values = row.get(field)
+            if not isinstance(values, list) or any(
+                    type(v) is not str or v not in codes_allowlist
+                    for v in values):
+                raise ValueError("unexpected room-code signal")
+            result[field] = sorted(set(values))
+        output["room_tile_signals"].append(result)
     for key, labels in (
             ("room_class_counts", ("space-box1", "space-box2", "space-box3")),
             ("room_code_counts", ("P01", "P02", "P03"))):
