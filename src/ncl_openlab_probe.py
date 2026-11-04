@@ -12,6 +12,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
+from reservation_browser import wait_until_browser_manually_closed
+
 NCL_URL = "https://spms.ncl.edu.tw/"
 NCL_HOST = "spms.ncl.edu.tw"
 TAIPEI_TZ = timezone(timedelta(hours=8))
@@ -141,7 +143,11 @@ async def inspect(day, priorities, save_evidence=False):
         print("僅供時段偵測：OBSERVED_NOT_VERIFIED 不代表有空位。")
         print("唯讀檢查完成：沒有點選、提交預約或自動重新整理。")
     finally:
-        await browser.stop()
+        # Let the user inspect the visible page (including any existing
+        # reservation result) without an automatic Chrome shutdown.
+        # Passive DevTools monitoring ends only when Chrome is closed manually.
+        print("唯讀檢查已結束；Chrome 視窗保留，請自行關閉。此工具不會送出預約。")
+        await wait_until_browser_manually_closed(browser)
 
 
 def main():
