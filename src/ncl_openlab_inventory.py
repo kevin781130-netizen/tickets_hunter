@@ -102,7 +102,9 @@ def summarize_inventory(raw, registry=None):
     data = validate_inventory(raw)
     if data is None:
         return {"valid": False, "reason": "INVENTORY_RESULT_INVALID"}
-    entry_labels = {p.entry_label: p.key for p in registry.rooms.values()}
+    entry_labels = {}
+    for p in registry.rooms.values():
+        entry_labels.setdefault(p.entry_label, []).append(p.key)
     rooms = []
     for room in data["rooms"]:
         matches = [p.key for p in registry.rooms.values() if p.tile_matches(room["label"])]
@@ -125,10 +127,13 @@ def summarize_inventory(raw, registry=None):
             # The sign of 'book' (before vs after click) is not observable here.
             "confidence": "SELECTOR_ONLY_NEEDS_LIVE_CHECK" if flow else "NEW_FLOW_UNVERIFIED",
         })
-    status = [{**item, "configured_as": entry_labels.get(item["label"])}
-              for item in data["status_labels"]]
+    status = []
+    for item in data["status_labels"]:
+        mapped = entry_labels.get(item["label"], [])
+        status.append({**item, "configured_as": mapped[0] if len(mapped) == 1 else None,
+                       "configured_units": mapped})
     unconfigured_rooms = [r["label"] for r in rooms if r["configured_as"] is None]
-    unconfigured_status = [i["label"] for i in status if i["configured_as"] is None]
+    unconfigured_status = [i["label"] for i in status if not i["configured_units"]]
     return {"valid": True, "path": data["path"], "dates": data["dates"],
             "status_labels": status, "rooms": rooms, "slot_groups": slot_groups,
             "unconfigured_rooms": unconfigured_rooms,
