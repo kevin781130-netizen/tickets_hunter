@@ -43,6 +43,7 @@ DIAG_JS = r"""(() => {
     host: location.hostname,
     status: "READ_ONLY",
     expected_date: target.shortDate,
+    iframe_count: Math.min(document.querySelectorAll("iframe").length, 100),
     date_grid_total: Math.min(dates.length, 100),
     date_match_count: Math.min(matchedDates.length, 100),
     date_flags: matchedDates.slice(0, 3).map(flags),
@@ -67,7 +68,7 @@ def validate_diagnostic(data, day):
         raise ValueError("unexpected diagnostic status")
     output = {"status": "READ_ONLY", "date": day.isoformat()}
     allowed = {"selected", "book", "active", "is-selected", "chosen", "current"}
-    for field in ("date_grid_total", "date_match_count",
+    for field in ("iframe_count", "date_grid_total", "date_match_count",
                   "room_grid_total", "p03_match_count"):
         value = data.get(field)
         if type(value) is not int or not 0 <= value <= 100:
@@ -97,20 +98,58 @@ def validate_diagnostic(data, day):
     return output
 
 
+async def collect_browser_diagnostics(browser, day):
+    """Read every NCL page tab; never confuse the initial tab with a popup.
+
+    Zendriver's browser.tabs enumerates current page targets. Only tabs whose
+    target metadata points to the official NCL origin are evaluated. Other
+    tabs and URLs are never inspected or included in output.
+    """
+    await browser.update_targets()
+    page_tabs = list(browser.tabs)
+    results = []
+    for index, page in enumerate(page_tabs):
+        url = str(getattr(getattr(page, "target", None), "url", "") or "")
+        parsed = urlsplit(url)
+        if parsed.hostname != NCL_HOST:
+            continue
+        kind = {
+            "/NLT/co/media_discussion.jsp": "booking",
+            "/NLT/co/multimedia.jsp": "status",
+        }.get(parsed.path, "other_ncl_page")
+        try:
+            result = validate_diagnostic(
+                await page.evaluate(diagnostic_script(day)), day)
+        except Exception:
+            # A tab can close or navigate while we read. No page data leaks.
+            results.append({"tab_index": index, "page_kind": kind,
+                            "status": "READ_FAILED"})
+            continue
+        results.append({"tab_index": index, "page_kind": kind, **result})
+    return {
+        "total_open_tabs": min(len(page_tabs), 100),
+        "official_ncl_tabs": len(results),
+        "pages": results,
+        "date_grid_detected": any(
+            row.get("date_grid_total", 0) > 0 for row in results),
+    }
+
+
 async def inspect(day):
     import zendriver as uc
     browser = await uc.start(headless=False)
     try:
-        tab = await browser.get(NCL_URL)
+        await browser.get(NCL_URL)
         await asyncio.to_thread(
-            input, "請手動登入，前往 P03 預約日期頁，點選目標日期；完成後回此按 Enter：")
-        url = await tab.evaluate("location.href")
-        if urlsplit(url).hostname != NCL_HOST:
-            raise RuntimeError("WRONG_HOST: not on official reservation page")
-        result = validate_diagnostic(await tab.evaluate(diagnostic_script(day)), day)
+            input, "請在程式開啟的 Chrome 視窗手動登入，前往 P03 預約日期頁，"
+                   "點選目標日期；完成後回此按 Enter：")
+        result = await collect_browser_diagnostics(browser, day)
         print(json.dumps({"ncl_date_selection_diagnostic": result},
                          ensure_ascii=False, indent=2))
-        print("只讀取日期與房間的匿名選取標記；沒有送出預約。")
+        if not result["date_grid_detected"]:
+            print("尚未在程式控制的任何國圖分頁找到日期格。"
+                  "請確認使用的是程式開啟的 Chrome，而不是原本的 Chrome。")
+        print("只讀取官方國圖分頁的匿名選取標記；沒有送出預約。")
     finally:
         print("Chrome 保留供檢查；關閉這個 Chrome 視窗以結束診斷。")
         await wait_until_browser_manually_closed(browser)
