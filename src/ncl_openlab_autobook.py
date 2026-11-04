@@ -22,7 +22,7 @@ from reservation_common import (
 from reservation_browser import wait_until_browser_manually_closed
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
-PHASES = ("date", "room", "slot", "verify-slot", "next", "submit", "success")
+PHASES = ("date", "verify-date", "room", "slot", "verify-slot", "next", "submit", "success")
 P03_SLOTS = tuple(f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 20))
 ROOM_MODES = ("music", "p03")
 ACTION_JS = r"""(() => {
@@ -71,6 +71,12 @@ ACTION_JS = r"""(() => {
     if (disabled(tile)) return result("DATE_DISABLED");
     if (chosen(tile)) return result("ALREADY_SELECTED");
     tile.click(); return result("CLICKED");
+  }
+  if (task.phase === "verify-date") {
+    const tile = dateTile();
+    if (!tile) return result("DATE_NOT_UNIQUE");
+    if (disabled(tile)) return result("DATE_DISABLED");
+    return result(chosen(tile) ? "ALREADY_SELECTED" : "DATE_NOT_SELECTED");
   }
   if (task.phase === "room") {
     if (!chosen(dateTile())) return result("DATE_NOT_SELECTED");
@@ -390,6 +396,21 @@ async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
         # Keep the original music-mode call contract for existing tests.
         code = (await read_action(tab, phase, day, slot) if mode == "music"
                 else await read_action(tab, phase, day, slot, mode))
+        if phase == "date" and mode == "p03" and code == "CLICKED":
+            # A JS .click() is not evidence that NCL actually selected the day.
+            # Read the *same* unique date tile up to 4 seconds before touching
+            # room/slot. Never click the date again or retry final submission.
+            verified = "DATE_NOT_SELECTED"
+            for _ in range(16):
+                await asyncio.sleep(0.25)
+                verified = await read_action(tab, "verify-date", day, slot, mode)
+                if verified == "ALREADY_SELECTED":
+                    break
+                if verified not in ("DATE_NOT_SELECTED", "DATE_NOT_UNIQUE"):
+                    break
+            print(f"date: VERIFY_{verified}")
+            return ("CLICKED" if verified == "ALREADY_SELECTED"
+                    else "DATE_VERIFICATION_" + verified)
         if code not in transient or i == attempts - 1:
             return code
         await asyncio.sleep(0.2)
