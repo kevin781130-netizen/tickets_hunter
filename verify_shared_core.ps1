@@ -19,6 +19,7 @@ $modules = @(
     'src\reservation_common.py',
     'src\reservation_browser.py',
     'src\ncl_openlab_autobook.py',
+    'src\platforms\ncl_openlab.py',
     'src\ncl_openlab_picker_model.py',
     'src\ncl_openlab_picker.py',
     'src\ncl_browser_lifecycle_smoke.py'
