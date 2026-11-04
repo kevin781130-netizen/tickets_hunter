@@ -51,12 +51,14 @@ class MacLauncherTests(unittest.TestCase):
         self.assertNotIn("browser", str(launch.call_args))
 
     def test_windows_uses_original_console_behavior(self):
-        with patch("ncl_openlab_launcher.subprocess.Popen") as launch:
+        # CREATE_NEW_CONSOLE exists on Windows, not on the Mac test host.
+        with (patch.object(subprocess, "CREATE_NEW_CONSOLE", 16, create=True),
+              patch("ncl_openlab_launcher.subprocess.Popen") as launch):
             launch_booking_command(["python.exe", "bot.py"], "C:\\tmp",
                                    platform="win32")
         launch.assert_called_once_with(
             ["python.exe", "bot.py"], cwd="C:\\tmp",
-            creationflags=subprocess.CREATE_NEW_CONSOLE)
+            creationflags=16)
 
     def test_unsupported_platform_is_fail_closed(self):
         with (patch("ncl_openlab_launcher.subprocess.Popen") as popen,
