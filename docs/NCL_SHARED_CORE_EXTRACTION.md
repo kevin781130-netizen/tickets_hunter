@@ -82,3 +82,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\verify_shared_core.ps1
   本刀完成後預期 185 項，**待 Mac 執行確認**。
 
 `main` 和固定的 `release/ncl-openlab-rc-20261104` 不修改。
+
+## 第四刀｜唯讀檢查結束保留 Chrome
+
+- `src/ncl_openlab_probe.py` 的 `finally` 不再呼叫 `browser.stop()`。
+  改為共用的 `wait_until_browser_manually_closed(browser)`，無論檢查成功
+  或發生錯誤，都將原本的 Chrome 畫面留給使用者核對；
+  使用者自行關閉 Chrome 後，終端機程序才會結束。
+- 這個被動等待只查詢本機 DevTools 目標，不會刷新國圖網站、
+  登入、點擊選位、發送預約或自動提交。
+- `tests/test_ncl_openlab_probe_lifecycle.py` 新增兩項離線測試，
+  確認檢查成功及遇到錯誤時都沒有呼叫 `browser.stop()`。
+- 上一版 Mac 185 項已由使用者確認 PASS；本刀預期 187 項，
+  **尚待 Mac 重新測試**。
+- **唯讀檢查不代表實際預約成功**；確認訂位應以國圖正式成功頁
+  或會員預約紀錄為準。
+
+Mac 離線驗證：
+
+```bash
+cd ~/ncl-openlab && git pull --ff-only && .venv/bin/python -m unittest discover -s tests -p "test_ncl_openlab_*.py" -q
+```
+
+驗證唯讀工具實際保留 Chrome（須自行登入，無自動預約）：
+
+```bash
+cd ~/ncl-openlab && .venv/bin/python src/ncl_openlab_probe.py
+```
