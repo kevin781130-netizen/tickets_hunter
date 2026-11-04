@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from ncl_openlab_launcher import launch_booking_command
+from ncl_openlab_room_catalog import ROOM_GROUPS, room_status, room_notice
 from ncl_openlab_picker_model import (
     ROOM_CHOICES, TAIPEI, available_slots, build_booking_args,
     console_python, release_datetime,
@@ -34,8 +35,8 @@ class BookingPicker(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("國圖 OPEN LAB｜預約日期與時段")
-        self.geometry("850x690")
-        self.minsize(690, 480)
+        self.geometry("900x760")
+        self.minsize(720, 510)
         self.configure(bg=PAPER)
 
         now = datetime.now(TAIPEI)
@@ -95,13 +96,30 @@ class BookingPicker(tk.Tk):
                  bg=PAPER, fg=DARK,
                  font=("Microsoft JhengHei UI", 10)).pack(anchor="w", pady=(3, 13))
 
-        room_row = tk.LabelFrame(main, text=" 1｜選擇空間 ", bg=PAPER, fg=DARK,
-                                 padx=12, pady=8)
+        room_row = tk.LabelFrame(main, text=" 1｜選擇空間（全部 14 類） ", bg=PAPER,
+                                 fg=DARK, padx=12, pady=8)
         room_row.pack(fill="x", pady=(0, 11))
-        for mode, title in ROOM_CHOICES.items():
-            ttk.Radiobutton(room_row, text=title, value=mode,
-                            variable=self.room, command=self._room_changed).pack(
-                                side="left", padx=(5, 26))
+        # Two-column layout prevents the 14 entries from overflowing a laptop.
+        # Online-unverified rooms may be inspected, but cannot launch booking.
+        # On-site-only spaces are informational and disabled.
+        for group_title, modes in ROOM_GROUPS:
+            group = tk.Frame(room_row, bg=PAPER)
+            group.pack(fill="x", anchor="w", pady=(1, 6))
+            tk.Label(group, text=group_title, bg=PAPER, fg=GOLD,
+                     font=("Microsoft JhengHei UI", 10, "bold")).grid(
+                         row=0, column=0, columnspan=2, sticky="w", pady=(1, 2))
+            for index, mode in enumerate(modes):
+                choice = ttk.Radiobutton(
+                    group, text=ROOM_CHOICES[mode], value=mode,
+                    variable=self.room, command=self._room_changed)
+                if room_status(mode) == "onsite_only":
+                    choice.configure(state="disabled")
+                choice.grid(row=index // 2 + 1, column=index % 2,
+                            sticky="w", padx=(5, 20), pady=2)
+        self.room_note = tk.Label(room_row, bg=PAPER, fg=DARK, anchor="w",
+                                  justify="left", wraplength=760,
+                                  font=("Microsoft JhengHei UI", 10))
+        self.room_note.pack(fill="x", pady=(6, 0))
 
         # Calendar and slots side-by-side keep all controls visible on 720p.
         choices_row = tk.Frame(main, bg=PAPER)
@@ -218,8 +236,9 @@ class BookingPicker(tk.Tk):
     def _render_slots(self):
         for widget in self.slot_frame.winfo_children():
             widget.destroy()
-        choices = available_slots(self.room.get())
-        columns = 2 if self.room.get() == "p03" else 3
+        room = self.room.get()
+        choices = available_slots(room)
+        columns = 2 if room == "p03" else 3
         for col in range(columns):
             self.slot_frame.columnconfigure(col, weight=1, uniform="slot")
         for index, slot in enumerate(choices):
@@ -235,22 +254,29 @@ class BookingPicker(tk.Tk):
             button.grid(row=index // columns, column=index % columns,
                         padx=3, pady=3, sticky="ew")
         self.slot_note.config(
-            text=("選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。"
+            text=(("此空間時段尚待驗證，暫不開放程式選取。" if not choices else
+                  "選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。")
                   if not self.slots else
                   "預約順序：" + " → ".join(self.slots))
         )
+        self.room_note.config(text=room_notice(room))
 
     def _refresh_summary(self):
-        release = release_datetime(self.selected_date)
-        plan = "立即正式預約（真實送出；無午夜重試）" if self.immediate.get() else (
-            f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
-            "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）"
-        )
+        status = room_status(self.room.get())
+        if status != "verified":
+            plan = ("現場限定，不可線上預約" if status == "onsite_only"
+                    else "待驗證空間：僅列入清單，禁止自動送出")
+        else:
+            release = release_datetime(self.selected_date)
+            plan = ("立即正式預約（真實送出；無午夜重試）"
+                    if self.immediate.get() else
+                    f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
+                    "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）")
         self.summary.config(
-            text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\n"
-                 f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\n"
-                 f"模式：{plan}\n"
-                 f"自動改選：{'開啟（同日同房間）' if self.fallback_any_slot.get() else '關閉'}"
+            text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\\n"
+                 f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\\n"
+                 f"模式：{plan}\\n"
+                 f"自動改選：{'開啟（同日同房間）' if self.fallback_any_slot.get() and status == 'verified' else '停用'}"
         )
 
     def _launch(self):
