@@ -369,10 +369,13 @@ async def submit_once_with_pointer(tab, day, slot, mode="music", attempts=8):
 
 async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     """Only reread the local DOM; no extra HTTP requests or page refreshes."""
+    # The site updates date/room selection asynchronously after click().
+    # These statuses are *read-only* until the selection appears; do not
+    # click the date a second time or advance when it remains unselected.
     transient = {
         "date": {"DATE_NOT_UNIQUE"},
-        "room": {"ROOM_NOT_UNIQUE"},
-        "slot": {"SLOT_NOT_UNIQUE"},
+        "room": {"ROOM_NOT_UNIQUE", "DATE_NOT_SELECTED"},
+        "slot": {"SLOT_NOT_UNIQUE", "CONTEXT_NOT_SELECTED"},
         "next": {"NEXT_NOT_ACTIONABLE", "TARGET_NOT_SELECTED"},
         "submit": {"SUBMIT_NOT_ACTIONABLE", "SUMMARY_MISMATCH"},
     }.get(phase, set())
