@@ -36,9 +36,20 @@ DIAG_JS = r"""(() => {
     visible: visible(el),
   });
   const dates = Array.from(document.querySelectorAll(".date-box")).filter(visible);
-  const rooms = Array.from(document.querySelectorAll(".space-box1")).filter(visible);
+  // P01 has appeared as .space-box1 in actual NCL markup. Search all three
+  // restricted room classes, never generic page text or personal data.
+  const roomClasses = ["space-box1", "space-box2", "space-box3"];
+  const rooms = Array.from(document.querySelectorAll(
+    ".space-box1, .space-box2, .space-box3")).filter(visible);
+  const roomCode = (el) => {
+    const text = clean(el);
+    const found = text.match(/^P0[123](?=\s|$)/);
+    return found ? found[0] : null;
+  };
   const matchedDates = dates.filter(el => clean(el).startsWith(target.shortDate));
-  const matchedRooms = rooms.filter(el => /^P03(?:\s|$)/.test(clean(el)));
+  const matchedRooms = rooms.filter(el => roomCode(el) === "P03");
+  const roomCodes = ["P01", "P02", "P03"];
+
   return {
     host: location.hostname,
     status: "READ_ONLY",
@@ -48,6 +59,12 @@ DIAG_JS = r"""(() => {
     date_match_count: Math.min(matchedDates.length, 100),
     date_flags: matchedDates.slice(0, 3).map(flags),
     room_grid_total: Math.min(rooms.length, 100),
+    room_class_counts: Object.fromEntries(
+      roomClasses.map(name => [name, Math.min(rooms.filter(
+        el => el.classList.contains(name)).length, 100)])),
+    room_code_counts: Object.fromEntries(
+      roomCodes.map(code => [code, Math.min(rooms.filter(
+        el => roomCode(el) === code).length, 100)])),
     p03_match_count: Math.min(matchedRooms.length, 100),
     p03_flags: matchedRooms.slice(0, 3).map(flags)
   };
@@ -74,6 +91,16 @@ def validate_diagnostic(data, day):
         if type(value) is not int or not 0 <= value <= 100:
             raise ValueError("invalid DOM count")
         output[field] = value
+    for key, labels in (
+            ("room_class_counts", ("space-box1", "space-box2", "space-box3")),
+            ("room_code_counts", ("P01", "P02", "P03"))):
+        group = data.get(key)
+        if not isinstance(group, dict) or set(group) != set(labels):
+            raise ValueError("invalid room diagnostic category")
+        if any(type(group[label]) is not int or not 0 <= group[label] <= 100
+               for label in labels):
+            raise ValueError("invalid room diagnostic count")
+        output[key] = {label: group[label] for label in labels}
     for name, count in (("date_flags", "date_match_count"),
                         ("p03_flags", "p03_match_count")):
         rows = data.get(name)
