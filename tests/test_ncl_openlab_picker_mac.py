@@ -104,6 +104,7 @@ class GuiToBackendTests(unittest.TestCase):
             immediate=types.SimpleNamespace(get=lambda: True),
             authorize_submit=types.SimpleNamespace(get=lambda: authorized),
             accept_terms=types.SimpleNamespace(get=lambda: True),
+            fallback_any_slot=types.SimpleNamespace(get=lambda: True),
         )
 
     def test_gui_button_launches_real_backend_entry_with_two_slots(self):
@@ -121,6 +122,7 @@ class GuiToBackendTests(unittest.TestCase):
         self.assertIn("--auto-submit", cmd)
         self.assertIn("--accept-terms", cmd)
         self.assertIn("--now", cmd)
+        self.assertIn("--fallback-any-slot", cmd)
         self.assertEqual(Path(cwd), SRC.parent)
 
     def test_gui_button_refuses_start_without_submit_consent(self):
