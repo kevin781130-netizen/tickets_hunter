@@ -25,7 +25,7 @@ def release_datetime(day):
 
 
 def build_booking_args(*, day, room, slots, immediate=False,
-                       auto_submit=False, accept_terms=False):
+                       auto_submit=False, accept_terms=False, fallback_any_slot=False):
     """Return safe argv suffix; selecting two always means TWO reservations.
 
     Every slot must be known for its chosen room, with no duplicates. The
@@ -53,6 +53,8 @@ def build_booking_args(*, day, room, slots, immediate=False,
         args.append("--now")
     if accept_terms:
         args.append("--accept-terms")
+    if fallback_any_slot:
+        args.append("--fallback-any-slot")
     return args
 
 
