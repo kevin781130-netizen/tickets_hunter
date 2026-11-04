@@ -273,9 +273,9 @@ class BookingPicker(tk.Tk):
                     f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
                     "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）")
         self.summary.config(
-            text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\\n"
-                 f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\\n"
-                 f"模式：{plan}\\n"
+            text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\n"
+                 f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\n"
+                 f"模式：{plan}\n"
                  f"自動改選：{'開啟（同日同房間）' if self.fallback_any_slot.get() and status == 'verified' else '停用'}"
         )
 
