@@ -4,7 +4,7 @@
 No browser, network, site selectors, or submission logic. Site-specific policy
 (seven-day horizon, retryable outcomes, etc.) stays with the adapter.
 """
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 
 
 def release_datetime(target_day, *, days_before, tz):
@@ -13,7 +13,7 @@ def release_datetime(target_day, *, days_before, tz):
         raise ValueError("invalid target day")
     if isinstance(days_before, bool) or not isinstance(days_before, int) or days_before < 0:
         raise ValueError("invalid release horizon")
-    if tz is None or tz.utcoffset(None) is None:
+    if not isinstance(tz, tzinfo):
         raise ValueError("release timezone required")
     return datetime.combine(target_day - timedelta(days=days_before),
                             time.min, tzinfo=tz)
