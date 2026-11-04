@@ -23,6 +23,18 @@ def data():
         "date_match_count": 1, "room_grid_total": 3,
         "room_class_counts": {"space-box1": 1, "space-box2": 1, "space-box3": 1},
         "room_code_counts": {"P01": 1, "P02": 1, "P03": 1},
+        "room_tile_signals": [
+            {"classes": [room_cls], "selected": index == 2,
+             "rendered_has_text": True, "content_has_text": True,
+             "rendered_codes_anywhere": [code],
+             "content_codes_anywhere": [code],
+             "aria_codes_anywhere": [],
+             "has_broadcast_label": index == 2,
+             "has_music_label": False,
+             "private_field": "SHOULD_NEVER_LEAK"}
+            for index, (room_cls, code) in enumerate((
+                ("space-box1", "P01"), ("space-box2", "P02"),
+                ("space-box3", "P03")))],
         "p03_match_count": 1,
         "date_flags": [{
             "class_flags": ["book"], "parent_class_flags": [],
@@ -94,6 +106,7 @@ class MultiTabDiagnosticsTests(unittest.TestCase):
             "date_flags": [], "room_grid_total": 0, "p03_match_count": 0,
             "room_class_counts": {"space-box1": 0, "space-box2": 0, "space-box3": 0},
             "room_code_counts": {"P01": 0, "P02": 0, "P03": 0},
+            "room_tile_signals": [],
             "p03_flags": [],
         })
         outside = SimpleNamespace(
@@ -161,6 +174,37 @@ class MultiTabDiagnosticsTests(unittest.TestCase):
         item["room_code_counts"]["P04"] = 1
         with self.assertRaises(ValueError):
             validate_diagnostic(item, DAY)
+
+    def test_textual_room_signals_are_allowlisted_without_raw_text(self):
+        result = validate_diagnostic(data(), DAY)
+        signals = result["room_tile_signals"]
+        self.assertEqual(len(signals), 3)
+        self.assertTrue(signals[2]["selected"])
+        self.assertEqual(signals[2]["rendered_codes_anywhere"], ["P03"])
+        self.assertTrue(signals[2]["has_broadcast_label"])
+        self.assertNotIn("SHOULD_NEVER_LEAK", str(result))
+        script = diagnostic_script(DAY)
+        self.assertIn('textContent', script)
+        self.assertIn('room_tile_signals: rooms.slice(0, 3).map(tileSignals)', script)
+        self.assertNotIn("outerHTML", script)
+        self.assertNotIn("document.cookie", script)
+
+    def test_unexpected_textual_signals_fail_closed(self):
+        values = data()
+        values["room_tile_signals"][2]["rendered_codes_anywhere"] = [
+            "P03", "secret-record"]
+        with self.assertRaises(ValueError):
+            validate_diagnostic(values, DAY)
+        values = data()
+        values["room_tile_signals"][2]["selected"] = "true"
+        with self.assertRaises(ValueError):
+            validate_diagnostic(values, DAY)
+
+    def test_room_signal_count_must_match_visible_room_tiles(self):
+        values = data()
+        values["room_tile_signals"].pop()
+        with self.assertRaises(ValueError):
+            validate_diagnostic(values, DAY)
 
     def test_iframe_count_is_only_allowlisted_number(self):
         info = data()
