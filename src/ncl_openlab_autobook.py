@@ -1069,6 +1069,8 @@ def main():
         parser.error("--dry-run 不可與 --reserve-two 併用")
     if args.screenshot and not (args.report_dir or args.dry_run):
         parser.error("--screenshot 需搭配 --report-dir 或 --dry-run")
+    if args.auto_submit and profile.live != "LIVE_VERIFIED":
+        parser.error(f"{profile.label} NOT_VERIFIED：未完成實機確認，不允許正式提交（--ack-room-unverified 無法解鎖）")
     if args.auto_submit and profile.submit_requires_ack and not args.ack_room_unverified:
         parser.error(f"{profile.label} 尚未實機驗證，送出前須明確加上 --ack-room-unverified")
     run_at, clock = resolve_schedule(parser, args)

@@ -23,7 +23,9 @@ from ncl_openlab_control import (
 )
 from ncl_openlab_credentials import CredentialError, CredentialStore
 from ncl_openlab_picker_model import (
-    ROOM_CHOICES, TAIPEI, available_slots, build_booking_args, default_run_at_text,
+    ROOM_CHOICES, CATEGORY_CHOICES, TAIPEI, available_slots, selectable_slots,
+    category_for_room, category_notice, room_keys_for_category, room_is_verified,
+    build_booking_args, default_run_at_text,
     engine_command, parse_start_fields, room_requires_ack, start_notes,
     summary_lines, validate_start,
 )
@@ -106,6 +108,7 @@ class BookingPicker(tk.Tk):
         self.selected_date = today + timedelta(days=8)
         self.view_year, self.view_month = self.selected_date.year, self.selected_date.month
         self.room = tk.StringVar(value=next(iter(ROOM_CHOICES)))
+        self.category = tk.StringVar(value=category_for_room(self.room.get()))
         self.mode = tk.StringVar(value="scheduled")  # scheduled | now
         self.start_date = tk.StringVar()
         self.start_time = tk.StringVar()
@@ -182,18 +185,25 @@ class BookingPicker(tk.Tk):
 
         tk.Label(main, text="國圖 OPEN LAB 預約控制台", bg=PAPER, fg=BURGUNDY,
                  font=ui_font(19, True)).pack(anchor="w")
-        tk.Label(main, text="選設備 → 選日期 → 選 1–2 個時段 → 設定啟動時間 → 授權並啟動排程",
+        tk.Label(main, text="選空間類別 → 選房間／設備 → 選日期 → 選時段 → 設定排程與授權",
                  bg=PAPER, fg=DARK, font=ui_font(10)).pack(anchor="w", pady=(3, 13))
 
-        room_row = tk.LabelFrame(main, text=" 1｜預約房型／設備 ", bg=PAPER, fg=DARK,
+        room_row = tk.LabelFrame(main, text=" 1｜空間類別 → 房間／設備 ", bg=PAPER, fg=DARK,
                                  padx=12, pady=8)
         room_row.pack(fill="x", pady=(0, 11))
-        self.room_box = ttk.Combobox(room_row, state="readonly", width=44,
-                                     values=list(ROOM_CHOICES.values()))
-        self.room_box.current(list(ROOM_CHOICES).index(self.room.get()))
-        self.room_box.pack(side="left")
+        self.category_box = ttk.Combobox(room_row, state="readonly", width=23,
+                                         values=list(CATEGORY_CHOICES.values()))
+        self.category_box.current(list(CATEGORY_CHOICES).index(self.category.get()))
+        self.category_box.pack(side="left")
+        self.category_box.bind("<<ComboboxSelected>>", self._category_selected)
+        self.room_box = ttk.Combobox(room_row, state="readonly", width=34,
+                                     values=[ROOM_CHOICES[k] for k in
+                                             room_keys_for_category(self.category.get())])
+        self.room_box.current(room_keys_for_category(self.category.get()).index(self.room.get()))
+        self.room_box.pack(side="left", padx=(10, 0))
         self.room_box.bind("<<ComboboxSelected>>", self._room_selected)
-        self.room_note = tk.Label(room_row, bg=PAPER, fg=MUTED, font=ui_font(9))
+        self.room_note = tk.Label(room_row, bg=PAPER, fg=MUTED, font=ui_font(9),
+                                  wraplength=240, justify="left")
         self.room_note.pack(side="left", padx=10)
 
         choices_row = tk.Frame(main, bg=PAPER)
@@ -316,11 +326,36 @@ class BookingPicker(tk.Tk):
     def _room_key(self):
         return self.room.get()
 
-    def _room_selected(self, _event=None):
+    def _category_selected(self, _event=None):
         if self.locked:
-            self.room_box.current(list(ROOM_CHOICES).index(self.room.get()))
+            self.category_box.current(list(CATEGORY_CHOICES).index(self.category.get()))
             return
-        self.room.set(list(ROOM_CHOICES)[self.room_box.current()])
+        index = self.category_box.current()
+        if index < 0:
+            return
+        self.category.set(list(CATEGORY_CHOICES)[index])
+        keys = room_keys_for_category(self.category.get())
+        self.room_box.configure(values=[ROOM_CHOICES[k] for k in keys])
+        self.room.set(keys[0] if keys else "")
+        if keys:
+            self.room_box.current(0)
+        else:
+            self.room_box.set("")
+        self.slots.clear()
+        self.ack_unverified.set(False)
+        self._render_slots()
+        self._refresh_all()
+
+    def _room_selected(self, _event=None):
+        keys = room_keys_for_category(self.category.get())
+        if self.locked:
+            if self.room.get() in keys:
+                self.room_box.current(keys.index(self.room.get()))
+            return
+        index = self.room_box.current()
+        if index < 0 or index >= len(keys):
+            return
+        self.room.set(keys[index])
         self.slots.clear()
         self.ack_unverified.set(False)
         self._render_slots()
@@ -383,7 +418,7 @@ class BookingPicker(tk.Tk):
     def _render_slots(self):
         for widget in self.slot_frame.winfo_children():
             widget.destroy()
-        choices = available_slots(self._room_key())
+        choices = selectable_slots(self._room_key())
         columns = 2 if len(choices) > 4 else 3
         for col in range(columns):
             self.slot_frame.columnconfigure(col, weight=1, uniform="slot")
@@ -395,7 +430,8 @@ class BookingPicker(tk.Tk):
             button.set_enabled(True, selected=bool(priority))
             button.grid(row=index // columns, column=index % columns, padx=3, pady=3, sticky="ew")
         self.slot_note.config(
-            text=("選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。" if not self.slots
+            text=("NOT_VERIFIED｜此設備時段尚未實機盤點，無法選取" if not choices
+                  else "選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。" if not self.slots
                   else "預約順序：" + " → ".join(self.slots)))
 
     # ----------------------------------------------------------- schedule
@@ -425,7 +461,10 @@ class BookingPicker(tk.Tk):
 
     # ----------------------------------------------------------- refresh
     def _refresh_all(self):
-        self.room_note.config(text="尚未實機驗證" if room_requires_ack(self._room_key()) else "")
+        note = category_notice(self.category.get())
+        if self._room_key() and not room_is_verified(self._room_key()):
+            note = "NOT_VERIFIED｜尚未實機驗證，不開放正式提交"
+        self.room_note.config(text=note)
         if room_requires_ack(self._room_key()):
             self.ack_check.pack(anchor="w", pady=(2, 0))
         else:
@@ -433,7 +472,9 @@ class BookingPicker(tk.Tk):
         now_mode = self.mode.get() == "now"
         for entry in (self.date_entry, self.time_entry):
             entry.configure(state="disabled" if now_mode or self.locked else "normal")
-        self.room_box.configure(state="disabled" if self.locked else "readonly")
+        self.category_box.configure(state="disabled" if self.locked else "readonly")
+        self.room_box.configure(state="disabled" if self.locked or not self._room_key()
+                                else "readonly")
         run_at, error = self._parse_start()
         if now_mode:
             self.start_note.config(text="立即執行：登入完成後立刻開始預約，不等待放位時間。", fg=BURGUNDY)
@@ -489,7 +530,8 @@ class BookingPicker(tk.Tk):
 
     def _refresh_buttons(self):
         state = self.supervisor.state if self.supervisor else "IDLE"
-        self.start_button.set_enabled(state not in ACTIVE_STATES)
+        self.start_button.set_enabled(state not in ACTIVE_STATES and
+                                      room_is_verified(self._room_key()))
         # Manual confirmation is only a fallback when the page cannot be classified.
         self.login_button.set_enabled(
             state == "LOGIN" and (self.supervisor.auth_state in (None, "AUTH_INTERACTION_REQUIRED")

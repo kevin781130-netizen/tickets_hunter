@@ -12,6 +12,7 @@ from ncl_openlab_schedule import (
 # Room choices and slots come from ncl_openlab_rooms.json, so a room added to
 # the config appears in the GUI without any code change.
 ROOM_CHOICES = {key: profile.ui_label for key, profile in get_registry().rooms.items()}
+CATEGORY_CHOICES = {c.key: c.label for c in get_registry().categories}
 TAIPEI = TAIPEI_TZ
 ENGINE = Path(__file__).resolve().with_name("ncl_openlab_autobook.py")
 RUN_AT_TEXT_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -21,6 +22,41 @@ SCHEDULE_ERRORS = {
     "RUN_AT_AFTER_TARGET_DAY": "啟動時間不可晚於預約日",
     "RUN_AT_INVALID": "啟動時間無法解讀",
 }
+
+
+def room_keys_for_category(category):
+    for c in get_registry().categories:
+        if c.key == category:
+            return c.room_keys if c.booking_mode != "ONSITE_ONLY" else ()
+    raise ValueError("未知的空間類別")
+
+
+def category_for_room(room):
+    for c in get_registry().categories:
+        if room in c.room_keys:
+            return c.key
+    raise ValueError("未知的房間／設備")
+
+
+def category_notice(category):
+    for c in get_registry().categories:
+        if c.key == category:
+            if c.booking_mode == "ONSITE_ONLY":
+                return "僅供現場借用｜不可線上預約"
+            if not c.room_keys:
+                return "NOT_VERIFIED｜房號、時段、確認頁待實機盤點"
+            return ""
+    raise ValueError("未知的空間類別")
+
+
+def room_is_verified(room):
+    profile = get_registry().rooms.get(room)
+    return bool(profile and profile.live == "LIVE_VERIFIED")
+
+
+def selectable_slots(room):
+    profile = get_registry().rooms.get(room)
+    return profile.slots if profile and profile.slots_verified else ()
 
 
 def available_slots(room):
@@ -104,6 +140,9 @@ def build_booking_args(*, day, room, slots, immediate=False, auto_submit=False,
         # Never acknowledge an unverified room on the user's behalf.
         raise ValueError("此空間尚未實機驗證，請先勾選「我了解此設備尚未實機驗證」"
                          "（命令列為 --ack-room-unverified）")
+
+    if not room_is_verified(room):
+        raise ValueError("NOT_VERIFIED：此房間／設備尚未完成實機確認，不允許正式提交")
 
     args = ["--room", room, "--date", day.isoformat(),
             "--slots", ",".join(selected), "--auto-submit"]
