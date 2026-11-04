@@ -120,6 +120,8 @@ class BookingPicker(tk.Tk):
                                   justify="left", wraplength=760,
                                   font=("Microsoft JhengHei UI", 10))
         self.room_note.pack(fill="x", pady=(6, 0))
+        ttk.Button(room_row, text="讀取所選空間的實際網頁規則（唯讀、不預約）",
+                   command=self._inspect_room).pack(anchor="w", pady=(7, 1))
 
         # Calendar and slots side-by-side keep all controls visible on 720p.
         choices_row = tk.Frame(main, bg=PAPER)
@@ -278,6 +280,24 @@ class BookingPicker(tk.Tk):
                  f"模式：{plan}\n"
                  f"自動改選：{'開啟（同日同房間）' if self.fallback_any_slot.get() and status == 'verified' else '停用'}"
         )
+
+    def _inspect_room(self):
+        mode = self.room.get()
+        if room_status(mode) != "needs_live_dom":
+            messagebox.showinfo(
+                "唯讀診斷", "此空間已完成選取驗證，或官網僅開放現場借用。")
+            return
+        entry = Path(__file__).resolve().with_name("ncl_openlab_room_diag.py")
+        command = [console_python(sys.executable), str(entry), "--room", mode]
+        try:
+            launch_booking_command(command, entry.parent.parent)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("診斷無法啟動", str(exc))
+            return
+        messagebox.showinfo(
+            "已啟動唯讀診斷",
+            "請在獨立 Chrome 登入並打開所選空間時段頁，再回終端按 Enter。"
+            "診斷不會點擊任何預約按鈕，也不會正式送出。")
 
     def _launch(self):
         try:
