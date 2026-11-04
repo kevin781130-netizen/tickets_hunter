@@ -356,19 +356,28 @@ class CliSafetyTests(unittest.TestCase):
                          ("p03", "hourly_slot", "LIVE_VERIFIED"))
         self.assertEqual(plan["release_taipei"], "2026-11-05T00:00:00+08:00")
 
-    def test_unverified_room_warns_but_existing_music_cli_still_works(self):
-        code, kw, out, _ = cli(["--date", "2026-11-12", "--auto-submit"])
-        self.assertEqual(code, 0)
-        self.assertIn("NOT_VERIFIED", out)
-        self.assertTrue(kw["auto_submit"])
-
-    def test_room_flagged_for_acknowledgement_needs_explicit_flag_to_submit(self):
-        music = dataclasses.replace(REGISTRY.room("music"), submit_requires_ack=True)
-        registry = RoomRegistry(flows=REGISTRY.flows, rooms={**REGISTRY.rooms, "music": music})
+    def test_unverified_music_never_submits_even_with_acknowledgement(self):
         args = ["--date", "2026-11-12", "--auto-submit"]
+        for extra in ([], ["--ack-room-unverified"]):
+            code, kw, _, err = cli(args + extra)
+            self.assertEqual(code, 2)
+            self.assertIsNone(kw)
+            self.assertIn("NOT_VERIFIED", err)
+        code, kw, out, _ = cli(["--date", "2026-11-12"])
+        self.assertEqual(code, 0)  # preview is still permitted
+        self.assertIn("NOT_VERIFIED", out)
+        self.assertFalse(kw["auto_submit"])
+
+    def test_verified_room_flagged_for_acknowledgement_needs_explicit_flag_to_submit(self):
+        p03 = dataclasses.replace(REGISTRY.room("p03"), submit_requires_ack=True)
+        registry = RoomRegistry(flows=REGISTRY.flows,
+                                rooms={**REGISTRY.rooms, "p03": p03},
+                                categories=REGISTRY.categories)
+        args = ["--date", "2026-11-12", "--room", "p03",
+                "--slot", "13:00-14:00", "--auto-submit"]
         self.assertEqual(cli(args, registry)[0], 2)
         self.assertEqual(cli(args + ["--ack-room-unverified"], registry)[0], 0)
-        self.assertEqual(cli(["--date", "2026-11-12"], registry)[0], 0)  # preview needs no ack
+        self.assertEqual(cli(args[:-1], registry)[0], 0)  # preview needs no ack
 
 
 if __name__ == "__main__":

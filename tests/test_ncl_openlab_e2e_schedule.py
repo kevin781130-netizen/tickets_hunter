@@ -7,6 +7,7 @@ the booking operations begin at the configured second, and not before.
 import json
 import math
 import os
+import re
 import sys
 import tempfile
 import time
@@ -204,7 +205,11 @@ class SafetyTests(unittest.TestCase):
         done = subprocess.run([sys.executable, str(FAKE), *argv], capture_output=True, text=True,
                               timeout=30, input="\n")
         self.assertEqual(done.returncode, 2)
-        self.assertIn("同一時間只允許一個預約程序", done.stderr)
+        # On Windows, a non-UTF-8 subprocess stderr may backslash-escape Chinese.
+        # Normalize only Unicode escapes; still assert the complete lock message.
+        stderr = re.sub(r"\\u([0-9a-fA-F]{4})",
+                        lambda match: chr(int(match.group(1), 16)), done.stderr)
+        self.assertIn("同一時間只允許一個預約程序", stderr)
         self.assertEqual(h.times("phase"), [])
         first.cancel()
         pump_until(first, lambda: first.state in ctl.FINAL_STATES, 15)

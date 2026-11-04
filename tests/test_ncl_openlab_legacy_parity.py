@@ -181,9 +181,25 @@ class CliParityTests(unittest.TestCase):
         [],
     ]
 
-    def test_cli_behaviour_is_identical(self):
+    # Historical CLI accepted music --auto-submit before live-evidence gating.
+    # The new engine intentionally rejects it because music is NOT_VERIFIED.
+    SAFETY_BREAKS = (
+        ("--date", "2026-11-12", "--now", "--auto-submit"),
+        ("--date", "2026-11-12", "--slots", "13:00-16:00,09:00-12:00", "--auto-submit"),
+        ("--date", "2026-11-12", "--slots", "13:00-16:00,17:00-20:00",
+         "--reserve-two", "--auto-submit", "--accept-terms", "--now"),
+    )
+
+    def test_cli_behaviour_is_identical_except_intentional_safety_gates(self):
         for argv in self.ARGV:
+            if tuple(argv) in self.SAFETY_BREAKS:
+                continue
             self.assertEqual(run_main(legacy, argv), run_main(new, argv), argv)
+
+    def test_unverified_music_is_intentionally_more_restrictive_than_legacy(self):
+        for argv in self.SAFETY_BREAKS:
+            self.assertEqual(run_main(legacy, list(argv))[0], "ok", argv)
+            self.assertEqual(run_main(new, list(argv)), ("exit", 2), argv)
 
 
 @unittest.skipUnless(browser.available(), "NOT_VERIFIED: headless Chromium unavailable")
