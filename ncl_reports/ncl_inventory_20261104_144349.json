@@ -1,0 +1,768 @@
+{
+  "snapshots": [
+    {
+      "valid": true,
+      "path": "/NLT/co/media_discussion.jsp",
+      "dates": [
+        "11/04",
+        "11/05",
+        "11/06",
+        "11/07",
+        "11/08",
+        "11/10",
+        "11/11"
+      ],
+      "status_labels": [],
+      "rooms": [
+        {
+          "label": "縫紉機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機02 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機03 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機04 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機05 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機06 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機07 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機08 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "刺繡機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        }
+      ],
+      "slot_groups": [],
+      "unconfigured_rooms": [
+        "縫紉機01 1 人",
+        "縫紉機02 1 人",
+        "縫紉機03 1 人",
+        "縫紉機04 1 人",
+        "縫紉機05 1 人",
+        "縫紉機06 1 人",
+        "縫紉機07 1 人",
+        "縫紉機08 1 人",
+        "刺繡機01 1 人"
+      ],
+      "unconfigured_status_labels": []
+    },
+    {
+      "valid": true,
+      "path": "/NLT/co/media_discussion.jsp",
+      "dates": [
+        "11/04",
+        "11/05",
+        "11/06",
+        "11/07",
+        "11/08",
+        "11/10",
+        "11/11"
+      ],
+      "status_labels": [],
+      "rooms": [
+        {
+          "label": "縫紉機01 1 人",
+          "selected": true,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機02 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機03 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機04 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機05 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機06 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機07 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機08 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "刺繡機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        }
+      ],
+      "slot_groups": [],
+      "unconfigured_rooms": [
+        "縫紉機01 1 人",
+        "縫紉機02 1 人",
+        "縫紉機03 1 人",
+        "縫紉機04 1 人",
+        "縫紉機05 1 人",
+        "縫紉機06 1 人",
+        "縫紉機07 1 人",
+        "縫紉機08 1 人",
+        "刺繡機01 1 人"
+      ],
+      "unconfigured_status_labels": []
+    },
+    {
+      "valid": true,
+      "path": "/NLT/co/media_discussion.jsp",
+      "dates": [
+        "11/04",
+        "11/05",
+        "11/06",
+        "11/07",
+        "11/08",
+        "11/10",
+        "11/11"
+      ],
+      "status_labels": [],
+      "rooms": [
+        {
+          "label": "縫紉機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機02 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機03 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機04 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機05 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機06 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機07 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機08 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "刺繡機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        }
+      ],
+      "slot_groups": [],
+      "unconfigured_rooms": [
+        "縫紉機01 1 人",
+        "縫紉機02 1 人",
+        "縫紉機03 1 人",
+        "縫紉機04 1 人",
+        "縫紉機05 1 人",
+        "縫紉機06 1 人",
+        "縫紉機07 1 人",
+        "縫紉機08 1 人",
+        "刺繡機01 1 人"
+      ],
+      "unconfigured_status_labels": []
+    },
+    {
+      "valid": true,
+      "path": "/NLT/co/media_discussion.jsp",
+      "dates": [
+        "11/04",
+        "11/05",
+        "11/06",
+        "11/07",
+        "11/08",
+        "11/10",
+        "11/11"
+      ],
+      "status_labels": [],
+      "rooms": [
+        {
+          "label": "縫紉機01 1 人",
+          "selected": true,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機02 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機03 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機04 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機05 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機06 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機07 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "縫紉機08 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        },
+        {
+          "label": "刺繡機01 1 人",
+          "selected": false,
+          "disabled": false,
+          "configured_as": null,
+          "ambiguous": false
+        }
+      ],
+      "slot_groups": [
+        {
+          "kind": "time-box",
+          "selector": ".time-box[data-param1]",
+          "count": 11,
+          "durations_hours": [
+            1.0
+          ],
+          "labels": [
+            "09:00-10:00",
+            "10:00-11:00",
+            "11:00-12:00",
+            "12:00-13:00",
+            "13:00-14:00",
+            "14:00-15:00",
+            "15:00-16:00",
+            "16:00-17:00",
+            "17:00-18:00",
+            "18:00-19:00",
+            "19:00-20:00"
+          ],
+          "book_seen": false,
+          "flow_candidate": "hourly_slot",
+          "confidence": "SELECTOR_ONLY_NEEDS_LIVE_CHECK"
+        }
+      ],
+      "unconfigured_rooms": [
+        "縫紉機01 1 人",
+        "縫紉機02 1 人",
+        "縫紉機03 1 人",
+        "縫紉機04 1 人",
+        "縫紉機05 1 人",
+        "縫紉機06 1 人",
+        "縫紉機07 1 人",
+        "縫紉機08 1 人",
+        "刺繡機01 1 人"
+      ],
+      "unconfigured_status_labels": []
+    }
+  ],
+  "config_drafts": {
+    "room": {
+      "label": "縫紉機01 1 人",
+      "ui_label": "縫紉機01 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機01 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機01 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_2": {
+      "label": "縫紉機02 1 人",
+      "ui_label": "縫紉機02 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機02 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機02 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_3": {
+      "label": "縫紉機03 1 人",
+      "ui_label": "縫紉機03 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機03 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機03 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_4": {
+      "label": "縫紉機04 1 人",
+      "ui_label": "縫紉機04 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機04 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機04 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_5": {
+      "label": "縫紉機05 1 人",
+      "ui_label": "縫紉機05 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機05 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機05 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_6": {
+      "label": "縫紉機06 1 人",
+      "ui_label": "縫紉機06 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機06 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機06 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_7": {
+      "label": "縫紉機07 1 人",
+      "ui_label": "縫紉機07 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機07 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機07 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_8": {
+      "label": "縫紉機08 1 人",
+      "ui_label": "縫紉機08 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "縫紉機08 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "縫紉機08 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    },
+    "room_9": {
+      "label": "刺繡機01 1 人",
+      "ui_label": "刺繡機01 1 人（TODO 填入時段長度）",
+      "entry_label": "TODO 填入多媒體空間現況頁的 data-zh 名稱",
+      "flow": "hourly_slot",
+      "tile_match": {
+        "kind": "includes",
+        "value": "刺繡機01 1 人"
+      },
+      "summary_match": {
+        "text_all": [
+          "TODO 填入最後確認頁上的房型名稱"
+        ],
+        "regex_all": []
+      },
+      "sample_tile_label": "刺繡機01 1 人",
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-10:00",
+          "10:00-11:00",
+          "11:00-12:00",
+          "12:00-13:00",
+          "13:00-14:00",
+          "14:00-15:00",
+          "15:00-16:00",
+          "16:00-17:00",
+          "17:00-18:00",
+          "18:00-19:00",
+          "19:00-20:00"
+        ]
+      },
+      "default_all_slots": false,
+      "single_slot_option": false,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "TODO 實機走完一次流程後再改為 LIVE_VERIFIED",
+        "source": "ncl_openlab_inventory.py 草稿"
+      }
+    }
+  }
+}
