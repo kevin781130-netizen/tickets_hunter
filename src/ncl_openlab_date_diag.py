@@ -24,7 +24,7 @@ DIAG_JS = r"""(() => {
     return box.width > 0 && box.height > 0 &&
       style.visibility !== "hidden" && style.display !== "none";
   };
-  const clean = (el) => String(el.innerText || "").replace(/\\s+/g, " ").trim();
+  const clean = (el) => String(el.innerText || "").replace(/\s+/g, " ").trim();
   const classes = ["selected", "book", "active", "is-selected", "chosen", "current"];
   const flags = (el) => ({
     class_flags: classes.filter(c => el.classList.contains(c)),
@@ -38,7 +38,7 @@ DIAG_JS = r"""(() => {
   const dates = Array.from(document.querySelectorAll(".date-box")).filter(visible);
   const rooms = Array.from(document.querySelectorAll(".space-box1")).filter(visible);
   const matchedDates = dates.filter(el => clean(el).startsWith(target.shortDate));
-  const matchedRooms = rooms.filter(el => /^P03(?:\\s|$)/.test(clean(el)));
+  const matchedRooms = rooms.filter(el => /^P03(?:\s|$)/.test(clean(el)));
   return {
     host: location.hostname,
     status: "READ_ONLY",
