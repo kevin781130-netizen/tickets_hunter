@@ -52,6 +52,7 @@ from platforms.tixcraft import *
 from platforms.ibon import *
 from platforms.kham import *
 from platforms.hkticketing import *
+from platforms.ncl_openlab import nodriver_ncl_main
 
 CONST_CITYLINE_SIGN_IN_URL = "https://www.cityline.com/Login.html?targetUrl=https%3A%2F%2Fwww.cityline.com%2FEvents.html"
 CONST_CITYLINE_HK_SIGN_IN_URL = "https://www.cityline.com.hk/Login.html?targetUrl=%s"
@@ -906,6 +907,14 @@ async def main(args):
                 await nodriver_kktix_paused_main(tab, url, config_dict)
             # sleep more when paused.
             await asyncio.sleep(0.1)
+            continue
+
+        # NCL OPEN LAB is registered as a passive, explicit-host adapter only.
+        # Check before generic timed reloads / anti-bot handlers: none of the
+        # standard ticket purchasing actions are applicable to room booking.
+        # This branch NEVER auto-selects, navigates, refreshes, or submits.
+        if urllib.parse.urlsplit(url).hostname == "spms.ncl.edu.tw":
+            await nodriver_ncl_main(tab, url, config_dict)
             continue
 
         # Gate: block platform dispatching until refresh_datetime target time
