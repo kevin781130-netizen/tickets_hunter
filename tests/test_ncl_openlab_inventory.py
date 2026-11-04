@@ -132,6 +132,9 @@ def completed_config():
     entry["slots"] = {"kind": "hourly", "start": 9, "end": 20}
     entry["evidence"] = {"live": "NOT_VERIFIED", "live_notes": "僅離線驗證。", "source": "test"}
     data["rooms"]["p05"] = entry
+    for category in data["categories"]:
+        if category["key"] == "personal_stream":
+            category["room_keys"].append("p05")
     return data
 
 

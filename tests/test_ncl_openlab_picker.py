@@ -28,24 +28,24 @@ class PickerModelTests(unittest.TestCase):
 
     def test_one_selected_slot_means_one_booking(self):
         argv = build_booking_args(
-            day=date(2026, 11, 12), room="music",
-            slots=["13:00-16:00"], auto_submit=True)
+            day=date(2026, 11, 12), room="p03",
+            slots=["13:00-14:00"], auto_submit=True)
         self.assertEqual(argv[:6], [
-            "--room", "music", "--date", "2026-11-12",
-            "--slots", "13:00-16:00"])
+            "--room", "p03", "--date", "2026-11-12",
+            "--slots", "13:00-14:00"])
         self.assertIn("--auto-submit", argv)
         self.assertNotIn("--reserve-two", argv)
         self.assertNotIn("--now", argv)
 
-    def test_two_music_slots_means_exactly_two_bookings(self):
+    def test_two_verified_room_slots_means_exactly_two_bookings(self):
         argv = build_booking_args(
-            day=date(2026, 11, 12), room="music",
-            slots=["17:00-20:00", "13:00-16:00"],
+            day=date(2026, 11, 12), room="p03",
+            slots=["17:00-18:00", "13:00-14:00"],
             auto_submit=True, accept_terms=True)
         self.assertIn("--reserve-two", argv)
         self.assertIn("--accept-terms", argv)
         self.assertEqual(argv[argv.index("--slots")+1],
-                         "17:00-20:00,13:00-16:00")
+                         "17:00-18:00,13:00-14:00")
 
     def test_two_p03_slots_means_exactly_two_bookings(self):
         argv = build_booking_args(
@@ -164,14 +164,15 @@ class ScheduleArgumentTests(unittest.TestCase):
     def test_every_gui_option_reaches_the_engine_parser(self):
         import ncl_openlab_autobook as engine
         from ncl_openlab_picker_model import parse_start_fields
-        argv = self.build(room="sewing01", slots=["14:00-15:00", "13:00-14:00"], accept_terms=True,
-                          ack_unverified=True, sync_clock=True, machine_status=True,
+        argv = self.build(room="p03", slots=["14:00-15:00", "13:00-14:00"], accept_terms=True,
+                          sync_clock=True, machine_status=True,
                           run_at=parse_start_fields("2026-11-05", "00:00:07"))
         args = engine.build_parser().parse_args(argv)
-        self.assertEqual((args.room, args.slots, args.run_at), ("sewing01", "14:00-15:00,13:00-14:00",
+        self.assertEqual((args.room, args.slots, args.run_at), ("p03", "14:00-15:00,13:00-14:00",
                                                                 "2026-11-05T00:00:07+08:00"))
-        self.assertTrue(all((args.reserve_two, args.accept_terms, args.ack_room_unverified,
+        self.assertTrue(all((args.reserve_two, args.accept_terms,
                              args.sync_clock, args.machine_status, args.auto_submit)))
+        self.assertFalse(args.ack_room_unverified)
         self.assertFalse(args.now)
 
     def test_start_fields_parse_strictly_in_taipei_time(self):

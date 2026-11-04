@@ -82,8 +82,10 @@ class WindowHelpers:
         return predicate()
 
     def configure(self, win, *, room="p03", slots=("13:00-14:00",), start=None, authorize=True):
-        win.room.set(room)
-        win.room_box.current(list(picker_mod.ROOM_CHOICES).index(room))
+        category = picker_mod.category_for_room(room)
+        win.category_box.current(list(picker_mod.CATEGORY_CHOICES).index(category))
+        win._category_selected()
+        win.room_box.current(picker_mod.room_keys_for_category(category).index(room))
         win._room_selected()
         for slot in slots:
             win._toggle_slot(slot)
@@ -192,8 +194,17 @@ class PickerWindowTests(WindowHelpers, unittest.TestCase):
 
     def test_room_list_comes_from_the_config(self):
         win = self.make()
-        self.assertEqual(list(win.room_box.cget("values")), list(picker_mod.ROOM_CHOICES.values()))
-        self.assertEqual(len(win.room_box.cget("values")), 11)
+        self.assertEqual(list(win.category_box.cget("values")), list(picker_mod.CATEGORY_CHOICES.values()))
+        self.assertEqual(len(win.category_box.cget("values")), 14)
+        self.assertEqual(len(win.room_box.cget("values")), 1)  # default music
+        win.category_box.current(list(picker_mod.CATEGORY_CHOICES).index("sewing"))
+        win._category_selected()
+        self.assertEqual(len(win.room_box.cget("values")), 9)
+        win.category_box.current(list(picker_mod.CATEGORY_CHOICES).index("language"))
+        win._category_selected()
+        self.assertEqual(len(win.room_box.cget("values")), 0)
+        self.assertIn("僅供現場借用", win.room_note.cget("text"))
+        self.assertFalse(win.start_button.enabled)
 
     # ---------------------------------------------------------------- runs
     def test_start_wires_every_setting_into_the_engine_and_tracks_each_state(self):

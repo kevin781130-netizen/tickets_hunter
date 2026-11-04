@@ -343,8 +343,8 @@ class AutoBookTests(unittest.TestCase):
         import ncl_openlab_autobook as app
 
         with (patch.object(sys, "argv", [
-            "app", "--date", "2026-11-12", "--slots",
-            "13:00-16:00,17:00-20:00", "--auto-submit",
+            "app", "--date", "2026-11-12", "--room", "p03", "--slots",
+            "13:00-14:00,14:00-15:00", "--auto-submit",
             "--reserve-two", "--accept-terms", "--now"
         ]),
               patch.object(app.asyncio, "run", return_value="NOT_RUN") as runner,
@@ -353,11 +353,11 @@ class AutoBookTests(unittest.TestCase):
         coro = runner.call_args.args[0]
         try:
             vals = coro.cr_frame.f_locals
-            self.assertEqual(vals["priorities"], ("13:00-16:00", "17:00-20:00"))
+            self.assertEqual(vals["priorities"], ("13:00-14:00", "14:00-15:00"))
             self.assertTrue(vals["reserve_two"])
             self.assertTrue(vals["accept_terms"])
             self.assertTrue(vals["auto_submit"])
-            self.assertEqual(vals["mode"], "music")
+            self.assertEqual(vals["mode"], "p03")
         finally:
             coro.close()
 
@@ -676,8 +676,8 @@ class AutoBookTests(unittest.TestCase):
         import ncl_openlab_autobook as app
 
         with (patch.object(sys, "argv", [
-            "app", "--date", "2026-11-12", "--room", "music",
-            "--slots", "13:00-16:00,09:00-12:00",
+            "app", "--date", "2026-11-12", "--room", "p03",
+            "--slots", "13:00-14:00,09:00-10:00",
             "--retry-interval", "3", "--retry-window", "90",
             "--auto-submit"
         ]),
@@ -687,7 +687,7 @@ class AutoBookTests(unittest.TestCase):
         coro = runner.call_args.args[0]
         try:
             self.assertEqual(coro.cr_frame.f_locals["priorities"],
-                             ("13:00-16:00", "09:00-12:00"))
+                             ("13:00-14:00", "09:00-10:00"))
             self.assertEqual(coro.cr_frame.f_locals["retry_interval"], 3)
             self.assertEqual(coro.cr_frame.f_locals["retry_window"], 90)
         finally:

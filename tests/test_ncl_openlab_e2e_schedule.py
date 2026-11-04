@@ -228,22 +228,18 @@ class SafetyTests(unittest.TestCase):
                          ("FAILED", "RELEASE_REFRESH_BLOCKED_REFRESH_FAILED_OSError"))
         self.assertEqual(h.times("phase"), [])
 
-    def test_unverified_equipment_cannot_be_started_without_the_explicit_acknowledgement(self):
+    def test_unverified_equipment_cannot_be_started_even_with_acknowledgement(self):
         with self.assertRaises(ValueError):
             build_booking_args(day=DAY, room="sewing01", slots=["13:00-14:00"], auto_submit=True,
                                immediate=True)
-        argv = build_booking_args(day=DAY, room="sewing01", slots=["13:00-14:00"], auto_submit=True,
-                                  immediate=True, ack_unverified=True, machine_status=True)
-        self.assertIn("--ack-room-unverified", argv)
-        # and the real engine parser accepts exactly that argv
-        import ncl_openlab_autobook as engine
-        args = engine.build_parser().parse_args(argv)
-        self.assertTrue(args.ack_room_unverified and args.now and args.machine_status)
+        with self.assertRaisesRegex(ValueError, "NOT_VERIFIED"):
+            build_booking_args(day=DAY, room="sewing01", slots=["13:00-14:00"], auto_submit=True,
+                               immediate=True, ack_unverified=True, machine_status=True)
 
-    def test_equipment_drafts_run_through_the_shared_engine_with_the_explicit_ack(self):
-        """Equipment drafts use the shared hourly engine; wiring works with the explicit ack."""
+    def test_verified_p03_runs_through_shared_hourly_engine(self):
+        """Fake browser exercises shared flow; unverified equipment is blocked by GUI model."""
         h = Harness(self)
-        sup = h.supervisor(room="sewing01", immediate=True, ack_unverified=True)
+        sup = h.supervisor(room="p03", immediate=True)
         h.login(sup)
         self.assertTrue(pump_until(sup, lambda: sup.state in ctl.FINAL_STATES, 30), sup.log)
         self.assertEqual(sup.state, "SUCCESS")

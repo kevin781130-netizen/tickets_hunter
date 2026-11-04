@@ -182,7 +182,10 @@ class PickerModelTests(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 model.build_booking_args(**kwargs)
         self.assertIn("--ack-room-unverified", str(ctx.exception))
-        self.assertIn("--auto-submit", model.build_booking_args(**kwargs))
+        with self.assertRaisesRegex(ValueError, "NOT_VERIFIED"):
+            model.build_booking_args(**{**kwargs, "ack_unverified": True})
+        verified_kwargs = {**kwargs, "room": "p03", "slots": ("13:00-14:00",)}
+        self.assertIn("--auto-submit", model.build_booking_args(**verified_kwargs))
 
 
 if __name__ == "__main__":
