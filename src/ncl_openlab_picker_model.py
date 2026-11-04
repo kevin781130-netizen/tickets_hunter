@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from ncl_openlab_guard import VALID_SLOTS
 from ncl_openlab_autobook import P03_SLOTS
+from reservation_common import release_datetime as shared_release_datetime
 
 ROOM_CHOICES = {"music": "音樂創作室（3 小時）", "p03": "P03 個人直播室（1 小時）"}
 TAIPEI = timezone(timedelta(hours=8))
@@ -20,8 +21,7 @@ def available_slots(room):
 def release_datetime(day):
     if not isinstance(day, date) or isinstance(day, datetime):
         raise ValueError("請選擇有效日期")
-    return datetime.combine(day - timedelta(days=7),
-                            datetime.min.time(), tzinfo=TAIPEI)
+    return shared_release_datetime(day, days_before=7, tz=TAIPEI)
 
 
 def build_booking_args(*, day, room, slots, immediate=False,
