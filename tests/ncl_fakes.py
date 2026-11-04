@@ -81,9 +81,21 @@ def probe(state="valid", *, marker=False, **override):
     return base
 
 
+def good_field_check():
+    """What FIELD_CHECK_JS returns on the real login form (structure verified)."""
+    return {"host_ok": True, "path_ok": True, "counts": {"account": 1, "password": 1, "captcha": 1},
+            "distinct": True, "same_form": True, "attrs_ok": True, "types_ok": True}
+
+
+LOGIN_IDS = {"account": ("name", "name"), "password": ("password", "psword"), "captcha": ("insrand", "insrand")}
+LOGIN_SELECTORS = {"input#name": "account", "input#password": "password", "input#insrand": "captcha"}
+
+
 class Typing:
     def __init__(self, tab, kind):
         self.tab, self.kind = tab, kind
+        ident, name = LOGIN_IDS[kind]
+        self.attrs = {"id": ident, "name": name}
 
     async def clear_input(self):
         self.tab.log.append(("clear", self.kind))
@@ -103,9 +115,8 @@ class AuthTab:
         self.clock, self.state, self.entry = clock, state, entry
         self.marker, self.log, self.typed, self.probe_error = False, [], [], False
         self.reload_error = None
-        self.field_check = field_check or {"account": 1, "password": 1, "password_type": True,
-                                           "account_type_ok": True, "same_form": True,
-                                           "captcha_safe": True}
+        self.field_check = field_check if field_check is not None else good_field_check()
+        self.select_override = {}      # selector -> element (to simulate a wrong element)
         self.overrides = {}
         self.terms = {"present": False, "hash": None}    # what the dialog probe reports
         self.dialog = False                              # whether the rules dialog is really shown
@@ -138,8 +149,10 @@ class AuthTab:
         return None
 
     async def select(self, selector, timeout=10):
-        return {"#acct": Typing(self, "account"), "#pass": Typing(self, "password"),
-                "#captcha": Typing(self, "captcha")}.get(selector)
+        if selector in self.select_override:
+            return self.select_override[selector]
+        kind = LOGIN_SELECTORS.get(selector)
+        return Typing(self, kind) if kind else None
 
     async def reload(self, **kwargs):
         self.log.append(("reload", self.clock.now()))

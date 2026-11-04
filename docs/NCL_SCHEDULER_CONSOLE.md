@@ -74,10 +74,28 @@ GUI「登入與憑證」可輸入閱覽證號與密碼，存入 **macOS Keychain
 沒有安全金鑰庫（或後端是明碼／空後端）時拒絕儲存。引擎只在登入頁出現時才讀取，
 只填「帳號」與「密碼」兩個已驗證的欄位，**不碰驗證碼欄位、不按登入鈕**。
 
-> **登入頁 DOM 尚未實機盤點（NOT_VERIFIED）**：`src/ncl_openlab_site.json` 的兩個欄位 selector 預設為 `null`，
-> 此時**不會自動填入**（由你手動登入，其餘功能照常）。要啟用：執行
-> `python src/ncl_openlab_auth.py --probe-login`，在登入頁按 Enter（唯讀，只輸出欄位型別與名稱，
-> 不含輸入值、圖片來源或 Cookie），把結果給我或自行填入 selector，實機驗證後才算啟用。
+**登入頁欄位（已由使用者在 Mac 實機盤點，`src/ncl_openlab_site.json`）**
+
+| 欄位 | selector | name | type |
+|---|---|---|---|
+| 帳號 | `input#name` | `name` | `password`（網站就是這樣設計） |
+| 密碼 | `input#password` | `psword` | `password` |
+| 驗證碼 | `input#insrand` | `insrand` | `text` |
+
+三者在同一個表單，頁面路徑 `/NLT/co/login.jsp`。帳號欄位雖是 password 型別，**型別本身不構成放行理由**；
+自動填入前，頁面內的檢查必須同時成立才會動作，任一不符一律不填、改由你手動登入：
+
+1. 網域是 `spms.ncl.edu.tw`，路徑精確等於 `/NLT/co/login.jsp`（不是首頁、錯誤頁或長得像的頁面）。
+2. 三個 selector 各自**剛好命中一個**元素（含隱藏的重複元素都不允許）。
+3. 三個是**不同的元素**，且 id 與 name 屬性都與盤點結果一致（帳號 `name`/`name`、密碼 `password`/`psword`、
+   驗證碼 `insrand`/`insrand`），型別在允許清單內（帳號 password 或 text、密碼只能 password、驗證碼只能 text）。
+4. 三者屬於**同一個表單**。
+5. 取得元素後再次比對其 id／name；密碼或帳號含換行等控制字元（會等同按下 Enter 而送出登入）一律拒絕。
+
+驗證碼欄位**不會被選取、輸入或點擊**，登入鈕也不會被按；驗證碼永遠由你輸入。
+本機設定檔一致性也會檢查（三個 selector 必須不同、密碼欄位只能是 password、驗證碼不可是 password）。
+**僅欄位結構經實機盤點；實際填入帳密與登入結果尚未實機驗證（NOT_VERIFIED）。**
+需要重新盤點時：`python src/ncl_openlab_auth.py --probe-login`（唯讀，只輸出欄位型別與名稱）。
 
 ### 使用規範（條款）
 
@@ -160,7 +178,7 @@ xvfb-run -a python3.12 -m unittest tests.test_ncl_openlab_picker_gui   # Linux �
 | 測試檔 | 內容 |
 |---|---|
 | `test_ncl_openlab_auth` | 登入狀態機、多訊號判定、Fake Clock 的有效 Session／等待驗證碼／逾時／取消／失敗／自動填入限制、待命 Session 保護、條款版本同意 |
-| `test_ncl_openlab_auth_dom` | 真實 Chromium 對假登入頁／首頁／規範對話框執行探測腳本：只回布林值、不洩漏姓名與輸入值 |
+| `test_ncl_openlab_auth_dom` | 真實 Chromium 對假登入頁／首頁／規範對話框執行探測腳本：只回布林值、不洩漏姓名與輸入值；登入欄位檢查對正常頁、錯誤頁、欄位混淆等 20 種頁面逐一驗證 |
 | `test_ncl_openlab_credentials` | 金鑰庫儲存、拒絕不安全後端、不落檔／環境變數／命令列 |
 | `test_ncl_openlab_e2e_auth` | 真實引擎＋假瀏覽器（登入狀態時間軸）：沿用 Session、驗證碼等待自動確認、逾時回復或放棄、條款同意、取消 |
 | `test_ncl_openlab_schedule` | 時間解析、倒數、Fake Clock 的準點觸發、提前 2 小時啟動、跨日、已過期、睡眠跳動、取消、網路／登入失效、SNTP |
@@ -175,8 +193,8 @@ xvfb-run -a python3.12 -m unittest tests.test_ncl_openlab_picker_gui   # Linux �
 
 | 環境 | 結果 |
 |---|---|
-| Python 3.12 + xvfb（有 Tk，真實視窗） | **461 PASS**、0 FAIL、0 略過 |
-| Python 3.13（無 Tk） | **435 PASS**、0 FAIL、**26 NOT_VERIFIED**（GUI 測試未執行） |
+| Python 3.12 + xvfb（有 Tk，真實視窗） | **474 PASS**、0 FAIL、0 略過 |
+| Python 3.13（無 Tk） | **448 PASS**、0 FAIL、**26 NOT_VERIFIED**（GUI 測試未執行） |
 | macOS 實機、Windows 11 實機 | **NOT_RUN** |
 
 沒有真實執行的測試不標 PASS：缺少 Tk／瀏覽器環境而略過者在報告中記為 `NOT_VERIFIED`。
@@ -185,7 +203,7 @@ xvfb-run -a python3.12 -m unittest tests.test_ncl_openlab_picker_gui   # Linux �
 
 ## 仍需實機驗證的最少項目
 
-0. **官方登入頁**：用 `--probe-login` 盤點登入頁 DOM（帳號／密碼欄位、驗證碼圖片、登入失敗提示）；
+0. **官方登入頁**：欄位結構已盤點；仍需實機確認自動填入後帳號／密碼確實落在正確欄位、登入失敗時網站的提示與行為；
    確認「登出」「我的紀錄」「歡迎」判定訊號在真站成立；實測 Session 逾時多久、逾時後網站行為；
    確認使用規範對話框的雜湊在重新載入間穩定。這些都只做過假頁面模擬。
 1. **Mac 實機**：雙擊 `.command` → 視窗開啟 → Chrome 偵測 → 登入 → 待命 → 關閉視窗後 Chrome 程序與暫存目錄是否清掉（NOT_RUN）。

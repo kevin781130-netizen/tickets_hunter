@@ -17,13 +17,14 @@ sys.path.insert(0, str(HERE))
 
 import ncl_openlab_auth as au
 import ncl_openlab_autobook as app
-from ncl_fakes import AuthTab, HookedClock, probe
+from ncl_fakes import AuthTab, HookedClock, good_field_check, probe
 from ncl_openlab_schedule import TAIPEI_TZ, Timeline
 
 T0 = datetime(2026, 11, 5, 0, 0, 0, tzinfo=TAIPEI_TZ)
 SITE = au.load_site()
-FILLABLE = {**SITE, "login": {**SITE["login"], "account_selector": "#acct", "password_selector": "#pass",
-                              "status": "VERIFIED_IN_TEST"}}
+FILLABLE = SITE        # the real, inventoried login form structure
+NULL_SITE = {**SITE, "login": {**SITE["login"], "path": None, "account_selector": None,
+                               "password_selector": None, "captcha_selector": None, "fields": None}}
 
 
 def run(coro):
@@ -83,11 +84,20 @@ class ClassifyTests(unittest.TestCase):
 
 
 class SiteConfigTests(unittest.TestCase):
-    def test_default_config_keeps_login_dom_unverified(self):
-        self.assertEqual(SITE["login"]["status"], "NOT_VERIFIED")
-        self.assertIsNone(SITE["login"]["account_selector"])
-        self.assertFalse(au.autofill_available(SITE))
-        self.assertTrue(au.autofill_available(FILLABLE))
+    def test_default_config_carries_the_inventoried_login_form(self):
+        login = SITE["login"]
+        self.assertEqual(login["status"], "DOM_VERIFIED")
+        self.assertEqual(login["path"], "/NLT/co/login.jsp")
+        self.assertEqual((login["account_selector"], login["password_selector"], login["captcha_selector"]),
+                         ("input#name", "input#password", "input#insrand"))
+        self.assertEqual({k: (v["id"], v["name"]) for k, v in login["fields"].items()},
+                         {"account": ("name", "name"), "password": ("password", "psword"),
+                          "captcha": ("insrand", "insrand")})
+        self.assertEqual(login["fields"]["account"]["types"], ["password", "text"])   # account is type=password
+        self.assertEqual(login["fields"]["password"]["types"], ["password"])
+        self.assertEqual(login["fields"]["captcha"]["types"], ["text"])
+        self.assertTrue(au.autofill_available(SITE))
+        self.assertFalse(au.autofill_available(NULL_SITE))
 
     def test_bad_selectors_and_sections_are_refused(self):
         for selector in ("input, button", "a > b", "x" * 200, "", 5, "<script>"):
@@ -103,6 +113,51 @@ class SiteConfigTests(unittest.TestCase):
             path.write_text('{"schema_version": 1}', encoding="utf-8")
             with self.assertRaises(au.SiteConfigError):
                 au.load_site(path)
+
+
+class LoginConfigValidationTests(unittest.TestCase):
+    def load(self, mutate):
+        data = json.loads(json.dumps(SITE))
+        mutate(data["login"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.json"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            return au.load_site(path)
+
+    def assertRefused(self, mutate, label):
+        with self.assertRaises(au.SiteConfigError, msg=label):
+            self.load(mutate)
+
+    def test_inconsistent_login_blocks_are_refused(self):
+        def swap_ids(login):
+            login["fields"]["password"]["id"] = login["fields"]["account"]["id"]
+        cases = {
+            "missing captcha selector": lambda l: l.update(captcha_selector=None),
+            "missing path": lambda l: l.update(path=None),
+            "relative path": lambda l: l.update(path="login.jsp"),
+            "path with query": lambda l: l.update(path="/a?x=1"),
+            "duplicate selectors": lambda l: l.update(captcha_selector=l["account_selector"]),
+            "missing fields": lambda l: l.update(fields=None),
+            "extra role": lambda l: l["fields"].update(extra={"id": "x", "name": "x", "types": ["text"]}),
+            "same id twice": swap_ids,
+            "password field not a password type": lambda l: l["fields"]["password"].update(types=["text"]),
+            "password field also allowing text": lambda l: l["fields"]["password"].update(types=["password", "text"]),
+            "captcha as password": lambda l: l["fields"]["captcha"].update(types=["password"]),
+            "unknown input type": lambda l: l["fields"]["account"].update(types=["file"]),
+            "bad id": lambda l: l["fields"]["account"].update(id="a b"),
+            "script in selector": lambda l: l.update(account_selector="<script>"),
+        }
+        for label, mutate in cases.items():
+            self.assertRefused(mutate, label)
+
+    def test_fully_null_login_block_is_accepted_as_unconfigured(self):
+        site = self.load(lambda l: l.update(path=None, account_selector=None, password_selector=None,
+                                            captcha_selector=None, fields=None))
+        self.assertFalse(au.autofill_available(site))
+
+    def test_account_type_password_is_allowed_only_through_the_config_list(self):
+        site = self.load(lambda l: l["fields"]["account"].update(types=["text"]))
+        self.assertEqual(site["login"]["fields"]["account"]["types"], ["text"])
 
 
 class EnsureTests(unittest.TestCase):
@@ -221,24 +276,93 @@ class AutofillTests(unittest.TestCase):
 
     def test_unverified_login_dom_means_no_typing_even_with_saved_credentials(self):
         loaded = []
-        clock, tab, auth, _ = make("login", site=SITE, credentials=lambda: loaded.append(1) or self.CREDS)
+        clock, tab, auth, _ = make("login", site=NULL_SITE, credentials=lambda: loaded.append(1) or self.CREDS)
         clock.at(30, lambda: setattr(tab, "state", "valid"))
         self.assertIsNone(run(auth.ensure()))
         self.assertEqual((tab.typed, loaded), ([], []), "credentials are not even read")
 
-    def test_ambiguous_or_wrong_typed_fields_are_not_filled(self):
-        bad_checks = [
-            {"account": 2, "password": 1, "password_type": True, "account_type_ok": True, "same_form": True},
-            {"account": 1, "password": 1, "password_type": False, "account_type_ok": True, "same_form": True},
-            {"account": 1, "password": 1, "password_type": True, "account_type_ok": False, "same_form": True},
-            {"account": 1, "password": 1, "password_type": True, "account_type_ok": True, "same_form": False},
-            {"account": 0, "password": 0}, None, "garbage",
-        ]
-        for check in bad_checks:
+    def broken(self, **change):
+        check = good_field_check()
+        for key, value in change.items():
+            if key == "counts":
+                check["counts"] = {**check["counts"], **value}
+            else:
+                check[key] = value
+        return check
+
+    def test_every_structural_mismatch_refuses_to_fill(self):
+        bad_checks = {
+            "wrong path": self.broken(path_ok=False),
+            "wrong host": self.broken(host_ok=False),
+            "two account fields": self.broken(counts={"account": 2}),
+            "no password field": self.broken(counts={"password": 0}),
+            "CAPTCHA field missing": self.broken(counts={"captcha": 0}),
+            "CAPTCHA field duplicated": self.broken(counts={"captcha": 2}),
+            "hidden duplicate (mixed visibility)": self.broken(counts={"account": -1}),
+            "same element for two roles": self.broken(distinct=False),
+            "different forms": self.broken(same_form=False),
+            "id or name differs": self.broken(attrs_ok=False),
+            "type not allowed": self.broken(types_ok=False),
+            "missing keys": {"host_ok": True, "path_ok": True},
+            "legacy shape": {"account": 1, "password": 1, "password_type": True},
+            "none": None, "garbage": "garbage", "list": [],
+        }
+        for name, check in bad_checks.items():
             clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=20)
             tab.field_check = check
-            self.assertEqual(run(auth.ensure()), "AUTH_NO_RESPONSE")
-            self.assertEqual(tab.typed, [], check)
+            self.assertEqual(run(auth.ensure()), "AUTH_NO_RESPONSE", name)
+            self.assertEqual(tab.typed, [], name)
+
+    def test_the_verified_structure_is_accepted_even_though_the_account_field_is_a_password_type(self):
+        self.assertTrue(au.fields_verified(good_field_check()))
+        self.assertIn("password", SITE["login"]["fields"]["account"]["types"])
+        clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=20)
+        self.assertEqual(run(auth.ensure()), "AUTH_NO_RESPONSE")     # nobody typed the CAPTCHA
+        self.assertEqual([k for k, _ in tab.typed], ["account", "password"])
+
+    def test_the_captcha_field_is_never_selected_typed_or_clicked(self):
+        selected = []
+        clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=15)
+        real = tab.select
+
+        async def spying(selector, timeout=10):
+            selected.append(selector)
+            return await real(selector, timeout)
+        tab.select = spying
+        run(auth.ensure())
+        self.assertNotIn("input#insrand", selected)
+        self.assertEqual(sorted(selected), ["input#name", "input#password"])
+        self.assertNotIn("captcha", [k for k, _ in tab.typed])
+        self.assertEqual([e for e in tab.log if e[0] == "click"], [])
+
+    def test_a_wrong_element_is_not_typed_into_even_if_the_page_check_passed(self):
+        from ncl_fakes import Typing
+        for selector, impostor in (("input#name", "captcha"), ("input#password", "captcha"),
+                                   ("input#name", "password"), ("input#password", "account")):
+            clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=15)
+            tab.select_override[selector] = Typing(tab, impostor)
+            run(auth.ensure())
+            self.assertEqual(tab.typed, [], (selector, impostor))
+
+    def test_the_same_element_for_both_selectors_is_refused(self):
+        from ncl_fakes import Typing
+        clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=15)
+        shared = Typing(tab, "password")
+        tab.select_override.update({"input#name": shared, "input#password": shared})
+        run(auth.ensure())
+        self.assertEqual(tab.typed, [])
+
+    def test_credentials_with_control_characters_are_refused_so_enter_is_never_sent(self):
+        for creds in (("A123456789", "pw\n"), ("A1\r", "pw"), ("", "pw"), ("A1", ""), ("A1", None)):
+            clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda c=creds: c, timeout=10)
+            run(auth.ensure())
+            self.assertEqual(tab.typed, [], creds)
+
+    def test_a_page_that_stops_matching_between_check_and_typing_is_not_typed_into(self):
+        clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: self.CREDS, timeout=10)
+        tab.select_override["input#password"] = None        # element vanished
+        run(auth.ensure())
+        self.assertEqual(tab.typed, [], "nothing typed when either field cannot be selected")
 
     def test_no_saved_credentials_means_manual_login(self):
         clock, tab, auth, _ = make("login", site=FILLABLE, credentials=lambda: None, timeout=20)

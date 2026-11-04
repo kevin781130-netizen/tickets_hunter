@@ -455,7 +455,9 @@ class BookingPicker(tk.Tk):
         if not (saved and available):
             self.use_saved_login.set(False)
         self.saved_login_note.config(
-            text="" if available else "登入頁欄位尚未實機確認：不會自動填入，請手動登入（NOT_VERIFIED）")
+            text=("登入頁欄位已由真實頁面盤點；實際填入與登入結果尚待實機驗證（驗證碼仍由你輸入）"
+                  if available else
+                  "登入頁欄位尚未實機確認：不會自動填入，請手動登入（NOT_VERIFIED）"))
 
     def _save_credentials(self):
         try:

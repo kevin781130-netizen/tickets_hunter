@@ -30,8 +30,9 @@ TAIPEI = timezone(timedelta(hours=8))
 
 # Facts that offline tests cannot establish. Keep this list honest and current.
 LIVE_ONLY = (
-    ("官方登入頁 DOM（帳號／密碼欄位、驗證碼圖片位置、登入失敗提示）", "完全未實機盤點：登入欄位 selector 為 null，"
-                                       "自動填入停用、由你手動登入；請先執行 ncl_openlab_auth.py --probe-login"),
+    ("登入頁欄位結構（/NLT/co/login.jsp：input#name、input#password、input#insrand）", "已由使用者在 Mac 實機盤點並寫入設定；"
+                                       "帳號欄位為 password 型別，僅在網域、路徑、id、name、同表單全部吻合時允許"),
+    ("登入頁實際填入帳密與登入結果（含登入失敗提示）", "NOT_VERIFIED：只以假頁面與假瀏覽器測試；從未對真站填入或登入"),
     ("登入狀態判定訊號（「登出」「我的紀錄」「歡迎」與無密碼欄位）", "標籤取自使用者截圖，實際 DOM 未驗證；"
                                        "偵測不到時改走「手動確認」備援"),
     ("Session 實際逾時時間、逾時後網站行為（導向登入頁／錯誤頁）", "未知；待命期間的檢查是以假登入頁模擬"),

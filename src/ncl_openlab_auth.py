@@ -73,18 +73,34 @@ SESSION_PROBE_JS = r"""(() => {
 
 MARK_LOGIN_JS = "(() => { window.__nclLoginMarker = true; return true; })()"
 
+# Structure check of the official login form. The account field of this site is itself
+# type=password, so the type alone proves nothing: it is accepted only because host, path,
+# id, name, uniqueness, distinctness and the shared form ALL match what was inventoried.
 FIELD_CHECK_JS = r"""(() => {
-  const sel = __SELECTORS__;
+  const cfg = __LOGIN__;
   __COMMON__
-  const find = (s) => Array.from(document.querySelectorAll(s)).filter(visible);
-  const account = find(sel.account), password = find(sel.password);
-  const one = account.length === 1 && password.length === 1;
+  const roles = ["account", "password", "captcha"];
+  const all = {}, shown = {};
+  for (const role of roles) {
+    all[role] = Array.from(document.querySelectorAll(cfg[role + "_selector"]));
+    shown[role] = all[role].filter(visible);
+  }
+  const counts = {};
+  for (const role of roles) counts[role] = all[role].length === shown[role].length ? shown[role].length : -1;
+  const one = roles.every(role => counts[role] === 1);
+  const el = (role) => shown[role][0];
+  const attrs = one && roles.every(role => el(role).id === cfg.fields[role].id &&
+    el(role).getAttribute("name") === cfg.fields[role].name);
+  const types = one && roles.every(role => cfg.fields[role].types.includes(el(role).type));
   return {
-    account: account.length, password: password.length,
-    password_type: one && password[0].type === "password",
-    account_type_ok: one && ["text", "tel", "email", "number", ""].includes(account[0].type),
-    same_form: one && !!account[0].form && account[0].form === password[0].form,
-    captcha_safe: one && account[0] !== password[0]
+    host_ok: location.hostname === "spms.ncl.edu.tw",
+    path_ok: location.pathname === cfg.path,
+    counts: counts,
+    distinct: one && el("account") !== el("password") && el("account") !== el("captcha") &&
+      el("password") !== el("captcha"),
+    same_form: one && !!el("account").form && el("account").form === el("password").form &&
+      el("account").form === el("captcha").form,
+    attrs_ok: attrs, types_ok: types
   };
 })()"""
 
@@ -158,18 +174,63 @@ def load_site(path=None):
                 raise SiteConfigError(f"session.{key} is empty")
         if not isinstance(terms["marker_text"], str) or not terms["marker_text"].strip():
             raise SiteConfigError("terms.marker_text is empty")
-        for key in ("account_selector", "password_selector"):
-            value = login[key]
-            if value is not None and (not isinstance(value, str) or not _SELECTOR_OK.match(value)):
-                raise SiteConfigError(f"login.{key} is not a plain selector")
+        _check_login(login)
     except (KeyError, TypeError):
         raise SiteConfigError("site config is missing a section") from None
     return data
 
 
+_FIELD_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,30}$")
+_TEXT_TYPES = {"text", "password", "tel", "email", "number"}
+
+
+def _check_login(login):
+    """The login block is either entirely absent (all null) or entirely consistent."""
+    keys = ("account_selector", "password_selector", "captcha_selector")
+    values = [login.get(key) for key in keys]
+    if all(v is None for v in values) and not login.get("path") and not login.get("fields"):
+        return
+    for key, value in zip(keys, values):
+        if not isinstance(value, str) or not _SELECTOR_OK.match(value):
+            raise SiteConfigError(f"login.{key} is not a plain selector")
+    if len(set(values)) != 3:
+        raise SiteConfigError("login selectors must be three different selectors")
+    path = login.get("path")
+    if not isinstance(path, str) or not re.fullmatch(r"/[A-Za-z0-9_./-]{1,60}", path):
+        raise SiteConfigError("login.path must be an absolute path")
+    fields = login.get("fields")
+    if not isinstance(fields, dict) or set(fields) != {"account", "password", "captcha"}:
+        raise SiteConfigError("login.fields needs account, password and captcha")
+    for role, spec in fields.items():
+        types = spec.get("types") if isinstance(spec, dict) else None
+        if not (isinstance(spec, dict) and _FIELD_NAME.match(str(spec.get("id", "")))
+                and _FIELD_NAME.match(str(spec.get("name", "")))
+                and isinstance(types, list) and types and set(types) <= _TEXT_TYPES):
+            raise SiteConfigError(f"login.fields.{role} is malformed")
+    if len({spec["id"] for spec in fields.values()}) != 3:
+        raise SiteConfigError("login field ids must be different")
+    if fields["password"]["types"] != ["password"]:
+        raise SiteConfigError("the password field must be type password only")
+    if "password" in fields["captcha"]["types"]:
+        raise SiteConfigError("the CAPTCHA field can never be a password field")
+
+
 def autofill_available(site):
+    """True only when the whole login form description is present (path, 3 selectors, fields)."""
     login = site["login"]
-    return bool(login["account_selector"] and login["password_selector"])
+    return all(login.get(key) for key in ("path", "account_selector", "password_selector",
+                                           "captcha_selector", "fields"))
+
+
+def fields_verified(check):
+    """Strict reading of the FIELD_CHECK_JS result. Anything unexpected is a refusal."""
+    if not isinstance(check, dict):
+        return False
+    counts = check.get("counts")
+    return (check.get("host_ok") is True and check.get("path_ok") is True
+            and isinstance(counts, dict)
+            and all(counts.get(role) == 1 for role in ("account", "password", "captcha"))
+            and all(check.get(key) is True for key in ("distinct", "same_form", "attrs_ok", "types_ok")))
 
 
 # --------------------------------------------------------------------- probing
@@ -255,6 +316,17 @@ def validate_terms(raw):
 
 
 # --------------------------------------------------------------- authenticator
+def _is_field(element, spec):
+    """Second look at the element zendriver returned: its own id/name must match (if readable)."""
+    attrs = getattr(element, "attrs", None)
+    if attrs is None:
+        return True
+    try:
+        return attrs.get("id") == spec["id"] and attrs.get("name") == spec["name"]
+    except Exception:
+        return False
+
+
 class Authenticator:
     """Drives the eight auth states. Time, cancel and emit are injected for testing."""
 
@@ -315,19 +387,22 @@ class Authenticator:
         creds = self.credentials() if self.credentials else None
         if not creds:
             return False
-        selectors = {"account": login["account_selector"], "password": login["password_selector"]}
+        if not all(isinstance(v, str) and v and not any(ord(c) < 32 for c in v) for v in creds):
+            return False    # a newline would act like pressing Enter, i.e. submitting the login
         try:
-            check = await self.tab.evaluate(_script(FIELD_CHECK_JS, SELECTORS=selectors))
-            if not (isinstance(check, dict) and check.get("account") == 1 and check.get("password") == 1
-                    and check.get("password_type") is True and check.get("account_type_ok") is True
-                    and check.get("same_form") is True):
-                self.log("登入欄位不唯一或型別不符，不自動填入")
+            check = await self.tab.evaluate(_script(FIELD_CHECK_JS, LOGIN=login))
+            if not fields_verified(check):
+                self.log("登入頁網域、路徑或欄位結構與已盤點的不符，不自動填入")
                 return False
-            account_el = await self.tab.select(selectors["account"], timeout=2)
-            password_el = await self.tab.select(selectors["password"], timeout=2)
-            if account_el is None or password_el is None:
+            account_el = await self.tab.select(login["account_selector"], timeout=2)
+            password_el = await self.tab.select(login["password_selector"], timeout=2)
+            if account_el is None or password_el is None or account_el is password_el:
                 return False
-            await account_el.clear_input()
+            if not (_is_field(account_el, login["fields"]["account"])
+                    and _is_field(password_el, login["fields"]["password"])):
+                self.log("選到的元素不是預期的帳號／密碼欄位，不自動填入")
+                return False
+            await account_el.clear_input()          # the CAPTCHA field is never selected or touched
             await account_el.send_keys(creds[0])
             await password_el.clear_input()
             await password_el.send_keys(creds[1])

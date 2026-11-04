@@ -25,7 +25,7 @@ AGREED = {"yes": False}
 #   NCL_FAKE_SESSION  JSON [[epoch, "valid"|"login"|"unknown"], ...]  session as the page shows it
 #   NCL_FAKE_TERMS    hash of the rules dialog shown until accepted; NCL_FAKE_AGREE_AT = manual accept time
 #   NCL_FAKE_GUARD    JSON {"periodic":..,"lead":..,"margin":..,"stop":..} to shorten the session guard
-#   NCL_FAKE_ACCOUNT_SEL / NCL_FAKE_PASSWORD_SEL  selectors the fake login form answers to
+#   NCL_FAKE_FIELDS   "bad" makes the login-form structure check fail (wrong path)
 #   NCL_FAKE_CREDS    "account:password" preloaded into a fake in-memory keyring
 
 
@@ -60,6 +60,10 @@ def log(kind, **fields):
 class Element:
     def __init__(self, kind="submit"):
         self.kind = kind
+        ids = {"account": ("name", "name"), "password": ("password", "psword"),
+               "captcha": ("insrand", "insrand")}
+        if kind in ids:
+            self.attrs = {"id": ids[kind][0], "name": ids[kind][1]}
 
     async def clear_input(self):
         log("cleared", field=self.kind)
@@ -83,8 +87,9 @@ class Tab:
             log("marker")
             return True
         if "same_form" in script:
-            return {"account": 1, "password": 1, "password_type": True, "account_type_ok": True,
-                    "same_form": True, "captcha_safe": True}
+            ok = os.environ.get("NCL_FAKE_FIELDS") != "bad"
+            return {"host_ok": True, "path_ok": ok, "counts": {"account": 1, "password": 1, "captcha": 1},
+                    "distinct": True, "same_form": True, "attrs_ok": True, "types_ok": True}
         if "cyrb53" in script:
             terms = os.environ.get("NCL_FAKE_TERMS")
             if terms and not AGREED["yes"]:
@@ -133,10 +138,9 @@ class Tab:
         return None
 
     async def select(self, selector, timeout=10):
-        if selector == os.environ.get("NCL_FAKE_ACCOUNT_SEL"):
-            return Element("account")
-        if selector == os.environ.get("NCL_FAKE_PASSWORD_SEL"):
-            return Element("password")
+        kind = {"input#name": "account", "input#password": "password", "input#insrand": "captcha"}.get(selector)
+        if kind:
+            return Element(kind)
         return Element()
 
     async def get(self, url):

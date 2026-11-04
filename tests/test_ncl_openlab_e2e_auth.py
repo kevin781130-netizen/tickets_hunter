@@ -48,9 +48,11 @@ class AuthHarness(Harness):
         return "\n".join(text for _, text in sup.log)
 
 
-def site_with_selectors(folder):
+def site_without_login_form(folder):
+    """A site config whose login form is not configured (autofill must stay off)."""
     site = json.loads((HERE.parent / "src" / "ncl_openlab_site.json").read_text(encoding="utf-8"))
-    site["login"].update(account_selector="#acct", password_selector="#pass")
+    site["login"].update(path=None, account_selector=None, password_selector=None,
+                         captcha_selector=None, fields=None)
     path = Path(folder) / "site.json"
     path.write_text(json.dumps(site), encoding="utf-8")
     return str(path)
@@ -107,30 +109,41 @@ class LoginFlowTests(unittest.TestCase):
         login_at = time.time() + 8
         h = AuthHarness(self, NCL_FAKE_SESSION=plan((0, "login"), (login_at, "valid")),
                         NCL_FAKE_GUARD=json.dumps(GUARD),
-                        NCL_SITE_CONFIG=site_with_selectors(tempfile.mkdtemp()),
-                        NCL_FAKE_ACCOUNT_SEL="#acct", NCL_FAKE_PASSWORD_SEL="#pass",
-                        NCL_FAKE_CREDS=f"A123456789:{SECRET_PW}")
+                        NCL_FAKE_CREDS=f"A123456789:{SECRET_PW}")      # default site = inventoried login form
         sup = h.sup(run_at=soon(22), use_saved_login=True)
         sup.start()
         h.finish(sup)
         self.assertEqual(sup.state, "SUCCESS")
         typed = [e for e in h.read() if e["kind"] == "typed"]
         self.assertEqual([(e["field"], e["length"]) for e in typed], [("account", 10), ("password", len(SECRET_PW))])
+        self.assertNotIn("captcha", [e["field"] for e in h.read() if e["kind"] in ("typed", "cleared")])
         self.assertEqual(h.times("submit_keypress").__len__(), 1, "only the booking button was pressed")
         everything = h.events.read_text(encoding="utf-8") + h.log_text(sup)
         self.assertNotIn(SECRET_PW, everything)
         self.assertNotIn("A123456789", everything)
 
     @NEEDS_KEYRING
-    def test_unverified_login_dom_means_the_saved_login_is_not_used(self):
+    def test_unconfigured_login_form_means_the_saved_login_is_not_used(self):
         h = AuthHarness(self, NCL_FAKE_SESSION=plan((0, "login"), (time.time() + 6, "valid")),
                         NCL_FAKE_GUARD=json.dumps(GUARD),
-                        NCL_FAKE_CREDS=f"A123456789:{SECRET_PW}")      # default site config: selectors null
+                        NCL_SITE_CONFIG=site_without_login_form(tempfile.mkdtemp()),
+                        NCL_FAKE_CREDS=f"A123456789:{SECRET_PW}")
         sup = h.sup(run_at=soon(18), use_saved_login=True)
         sup.start()
         h.finish(sup)
         self.assertEqual(sup.state, "SUCCESS")
         self.assertEqual(h.times("typed"), [])
+
+    @NEEDS_KEYRING
+    def test_a_login_page_that_does_not_match_the_inventoried_form_is_never_typed_into(self):
+        h = AuthHarness(self, NCL_FAKE_SESSION=plan((0, "login"), (time.time() + 6, "valid")),
+                        NCL_FAKE_GUARD=json.dumps(GUARD), NCL_FAKE_FIELDS="bad",
+                        NCL_FAKE_CREDS=f"A123456789:{SECRET_PW}")
+        sup = h.sup(run_at=soon(18), use_saved_login=True)
+        sup.start()
+        h.finish(sup)
+        self.assertEqual(sup.state, "SUCCESS")          # the human logged in by hand
+        self.assertEqual([e for e in h.read() if e["kind"] in ("typed", "cleared")], [])
 
     def test_cancel_while_waiting_for_the_captcha_books_nothing(self):
         h = AuthHarness(self, NCL_FAKE_SESSION=plan((0, "login")))

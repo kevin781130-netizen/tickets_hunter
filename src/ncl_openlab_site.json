@@ -14,9 +14,35 @@
     "evidence": "取自使用者截圖的規範對話框；按鈕 #agree-btn 已在既有實機流程驗證，版本雜湊的容器尚未驗證。"
   },
   "login": {
-    "account_selector": null,
-    "password_selector": null,
-    "status": "NOT_VERIFIED",
-    "evidence": "登入頁 DOM 尚未實機盤點。執行 python src/ncl_openlab_auth.py --probe-login 取得欄位結構後，才可填入上面兩個 selector。"
+    "path": "/NLT/co/login.jsp",
+    "account_selector": "input#name",
+    "password_selector": "input#password",
+    "captcha_selector": "input#insrand",
+    "fields": {
+      "account": {
+        "id": "name",
+        "name": "name",
+        "types": [
+          "password",
+          "text"
+        ]
+      },
+      "password": {
+        "id": "password",
+        "name": "psword",
+        "types": [
+          "password"
+        ]
+      },
+      "captcha": {
+        "id": "insrand",
+        "name": "insrand",
+        "types": [
+          "text"
+        ]
+      }
+    },
+    "status": "DOM_VERIFIED",
+    "evidence": "2026-11 使用者在 Mac 對真實登入頁 /NLT/co/login.jsp 盤點 DOM：帳號 input#name（name=name、type=password）、密碼 input#password（name=psword、type=password）、驗證碼 input#insrand（name=insrand、type=text），三者同一表單。只驗證欄位結構；實際填入與登入結果未實機驗證。帳號欄位為 password 型別，僅在網域、路徑、id、name、同表單全部精確吻合時才允許。"
   }
 }

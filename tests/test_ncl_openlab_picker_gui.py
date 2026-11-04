@@ -310,8 +310,12 @@ class LoginPanelTests(WindowHelpers, unittest.TestCase):
     """Credential box, login status and the auth flags (inherits the window helpers)."""
 
     def fillable_site(self):
+        return au.load_site()             # the inventoried login form
+
+    def unconfigured_site(self):
         site = au.load_site()
-        site["login"] = {**site["login"], "account_selector": "#acct", "password_selector": "#pass"}
+        site["login"] = {**site["login"], "path": None, "account_selector": None,
+                         "password_selector": None, "captcha_selector": None, "fields": None}
         return site
 
     def test_password_box_is_masked_and_saving_never_keeps_the_password(self):
@@ -354,10 +358,10 @@ class LoginPanelTests(WindowHelpers, unittest.TestCase):
         self.assertFalse(store.has_saved())
         self.assertIn("尚未儲存", win.cred_status.cget("text"))
 
-    def test_saved_login_option_is_unavailable_while_the_login_dom_is_unverified(self):
+    def test_saved_login_option_is_unavailable_while_the_login_form_is_unconfigured(self):
         store = cred.CredentialStore(MemoryBackend())
         store.save("A123456789", "pw-Secret-1")
-        win = self.make(store=store)                     # default site config: selectors null
+        win = self.make(store=store, site=self.unconfigured_site())
         self.assertEqual(str(win.saved_login_check.cget("state")), "disabled")
         self.assertIn("NOT_VERIFIED", win.saved_login_note.cget("text"))
         self.assertFalse(win.use_saved_login.get())
@@ -369,7 +373,7 @@ class LoginPanelTests(WindowHelpers, unittest.TestCase):
         store.save("A123456789", "pw-Secret-1")
         win._refresh_credentials()
         self.assertEqual(str(win.saved_login_check.cget("state")), "normal")
-        self.assertEqual(win.saved_login_note.cget("text"), "")
+        self.assertIn("尚待實機驗證", win.saved_login_note.cget("text"))
 
     def test_start_passes_auth_flags_but_never_the_password(self):
         store = cred.CredentialStore(MemoryBackend())
