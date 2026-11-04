@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_comment": "NCL OPEN LAB 房型設定。新增房型優先只改這個檔案；流程(flow)代表DOM操作模型，同流程的房型共用同一份引擎與測試。templates 供同類設備共用欄位（extends）。",
+  "_comment": "NCL OPEN LAB 房型設定。新增房型優先只改這個檔案；流程(flow)代表DOM操作模型，同流程的房型共用同一份引擎與測試。templates 供同類設備共用欄位（extends）。 categories 專供二層導覽；ONLINE_CANDIDATE 不是已核實可提交。slots_verified=false 表示模板時段是草稿，不可呈現在正式 GUI。",
   "flows": {
     "block_slot": {
       "description": "多小時區塊時段：.time-box2；點選前必須帶 book class，選取後以 selected 表示。",
@@ -31,7 +31,8 @@
         "live": "NOT_VERIFIED",
         "live_notes": "2026-11-04 實機盤點：房型方塊與 .time-box[data-param1] 的 11 個一小時時段（僅縫紉機01 觀察到時段）。設備類別「創藝手作坊縫紉機」取自使用者截圖，9 台設備出現在同一個日期頁推得屬同類別，點擊進入與最後確認頁用字、成交皆未驗證；確認頁比對採房名且不符即不送出。",
         "source": "ncl_reports/ncl_inventory_20261104_144349.json"
-      }
+      },
+      "slots_verified": false
     }
   },
   "rooms": {
@@ -66,7 +67,8 @@
         "live": "NOT_VERIFIED",
         "live_notes": "已有 time-box2 的真實 DOM 與禁用態；音樂創作室正向可預約與最終「預約」按鈕尚無實機成交證據。",
         "source": "docs/ncl_openlab_probe.md 第八刀、第十二刀"
-      }
+      },
+      "slots_verified": true
     },
     "p03": {
       "label": "個人直播室 P03",
@@ -98,7 +100,8 @@
         "live": "LIVE_VERIFIED",
         "live_notes": "單筆（日期、房號、時段、最後確認）實機成功並出現 SUCCESS_PAGE_MATCHED。",
         "source": "docs/NCL_RC_CLOSEOUT.md"
-      }
+      },
+      "slots_verified": true
     },
     "sewing01": {
       "extends": "equipment_1h",
@@ -116,7 +119,8 @@
           "縫紉機01(?!\\d)"
         ]
       },
-      "sample_tile_label": "縫紉機01 1 人"
+      "sample_tile_label": "縫紉機01 1 人",
+      "slots_verified": true
     },
     "sewing02": {
       "extends": "equipment_1h",
@@ -262,5 +266,119 @@
       },
       "sample_tile_label": "刺繡機01 1 人"
     }
-  }
+  },
+  "categories": [
+    {
+      "key": "discussion",
+      "label": "討論室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "rehearsal",
+      "label": "團練室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "star_studio",
+      "label": "星際直播攝影棚",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "family_studio",
+      "label": "親子直播室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "music",
+      "label": "音樂創作室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [
+        "music"
+      ],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "av_viewing",
+      "label": "影音欣賞區",
+      "booking_mode": "ONSITE_ONLY",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "sewing",
+      "label": "創藝手作坊縫紉機",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [
+        "sewing01",
+        "sewing02",
+        "sewing03",
+        "sewing04",
+        "sewing05",
+        "sewing06",
+        "sewing07",
+        "sewing08",
+        "embroidery01"
+      ],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "personal_stream",
+      "label": "個人直播室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [
+        "p03"
+      ],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "anime_pc",
+      "label": "動漫創作坊電腦",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "electric_studio",
+      "label": "電神工作室",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "copy_scan_pc",
+      "label": "影印掃描用電腦",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "craft_pc",
+      "label": "創藝手作坊電腦",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "digital_pc",
+      "label": "數位科技實作區電腦",
+      "booking_mode": "ONLINE_CANDIDATE",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    },
+    {
+      "key": "language",
+      "label": "語言學習區",
+      "booking_mode": "ONSITE_ONLY",
+      "room_keys": [],
+      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+    }
+  ]
 }

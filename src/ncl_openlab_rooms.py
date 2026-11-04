@@ -64,6 +64,7 @@ class RoomProfile:
     slots: tuple
     default_all_slots: bool
     single_slot_option: bool
+    slots_verified: bool
     submit_requires_ack: bool
     live: str
     live_notes: str
@@ -97,9 +98,19 @@ class RoomProfile:
 
 
 @dataclass(frozen=True)
+class CategorySpec:
+    key: str
+    label: str
+    booking_mode: str
+    room_keys: tuple
+    evidence: str
+
+
+@dataclass(frozen=True)
 class RoomRegistry:
     flows: dict
     rooms: dict
+    categories: tuple = ()
 
     @property
     def keys(self):
@@ -243,6 +254,7 @@ def _parse_room(key, raw, flows, templates=None):
         default_all_slots=_flag(raw.get("default_all_slots"), f"{where}.default_all_slots"),
         single_slot_option=_flag(raw.get("single_slot_option"),
                                  f"{where}.single_slot_option"),
+        slots_verified=_flag(raw.get("slots_verified", True), f"{where}.slots_verified"),
         submit_requires_ack=_flag(raw.get("submit_requires_ack"),
                                   f"{where}.submit_requires_ack"),
         live=evidence["live"],
@@ -254,6 +266,39 @@ def _parse_room(key, raw, flows, templates=None):
     _require(profile.summary_matches(profile.sample_tile_label),
              f"{where}: summary_match does not match its own sample_tile_label")
     return profile
+
+
+def _parse_categories(raw, rooms):
+    """Validate screenshot-observed categories without inventing unit IDs."""
+    _require(isinstance(raw, list) and bool(raw), "categories must be a non-empty list")
+    seen, assigned, categories = set(), set(), []
+    for i, item in enumerate(raw):
+        where = f"categories[{i}]"
+        _require(isinstance(item, dict), f"{where} must be an object")
+        key = _text(item.get("key"), f"{where}.key", 24)
+        _require(KEY_RE.fullmatch(key) is not None and key not in seen,
+                 f"{where}.key must be unique and safe")
+        seen.add(key)
+        mode = item.get("booking_mode")
+        _require(mode in ("ONLINE_CANDIDATE", "ONSITE_ONLY"),
+                 f"{where}.booking_mode invalid")
+        keys = item.get("room_keys")
+        _require(isinstance(keys, list) and all(isinstance(k, str) for k in keys),
+                 f"{where}.room_keys must be a list of strings")
+        _require(len(keys) == len(set(keys)) and set(keys) <= set(rooms),
+                 f"{where}.room_keys have duplicate/unknown units")
+        _require(mode != "ONSITE_ONLY" or not keys,
+                 f"{where} onsite-only cannot include online units")
+        _require(not (assigned & set(keys)), f"{where} room assigned twice")
+        assigned.update(keys)
+        categories.append(CategorySpec(
+            key=key,
+            label=_text(item.get("label"), f"{where}.label", 40),
+            booking_mode=mode,
+            room_keys=tuple(keys),
+            evidence=_text(item.get("evidence"), f"{where}.evidence", 120)))
+    _require(assigned == set(rooms), "each room must map to exactly one category")
+    return tuple(categories)
 
 
 def parse_config(data):
@@ -279,7 +324,8 @@ def parse_config(data):
             if other_key != key and profile.tile_matches(other.sample_tile_label):
                 raise RoomConfigError(
                     f"room {key} tile_match also matches room {other_key}")
-    return RoomRegistry(flows=flows, rooms=rooms)
+    categories = _parse_categories(data.get("categories"), rooms)
+    return RoomRegistry(flows=flows, rooms=rooms, categories=categories)
 
 
 def load_config(path=None):
