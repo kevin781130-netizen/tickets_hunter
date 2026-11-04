@@ -4,9 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from ncl_openlab_guard import VALID_SLOTS
 from ncl_openlab_autobook import P03_SLOTS
+from ncl_openlab_room_catalog import ROOM_CHOICES, room_status
 from reservation_common import release_datetime as shared_release_datetime
-
-ROOM_CHOICES = {"music": "音樂創作室（3 小時）", "p03": "P03 個人直播室（1 小時）"}
 TAIPEI = timezone(timedelta(hours=8))
 
 
@@ -15,6 +14,10 @@ def available_slots(room):
         return VALID_SLOTS
     if room == "p03":
         return P03_SLOTS
+    # Catalog-only spaces are visible in the GUI, but we do not fabricate
+    # room-specific time slots or allow any unverified booking actions.
+    if room in ROOM_CHOICES:
+        return ()
     raise ValueError("不支援的空間")
 
 
@@ -35,6 +38,11 @@ def build_booking_args(*, day, room, slots, immediate=False,
         raise ValueError("請先使用月曆選擇預約日期")
     if room not in ROOM_CHOICES:
         raise ValueError("請選擇正確空間")
+    status = room_status(room)
+    if status == "onsite_only":
+        raise ValueError("此空間僅供現場借用，不提供線上自動預約")
+    if status != "verified":
+        raise ValueError("此空間的選房、時段與送出尚未實機驗證，不允許自動預約")
     selected = tuple(slots)
     if len(selected) not in (1, 2):
         raise ValueError("請選擇一個或兩個時段")
