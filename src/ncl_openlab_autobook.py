@@ -44,7 +44,11 @@ ACTION_JS = r"""(() => {
     .filter(visible);
   const dateTile = () => exactOne(from(".date-box")
     .filter(el => cleanText(el).startsWith(task.shortDate)));
-  const roomTile = () => exactOne(from(".space-box1")
+  // Real P01 markup uses .space-box1; P03 must not be assumed to share
+  // that one CSS class. Search only known room-tile classes, and still
+  // require one exact P03 identity before any click or final submission.
+  const roomTile = () => exactOne(from(task.mode === "p03"
+    ? ".space-box1, .space-box2, .space-box3" : ".space-box1")
     .filter(el => task.mode === "p03"
       ? /^P03(?:\s|$)/.test(cleanText(el))
       : cleanText(el).includes(task.room)));
