@@ -52,3 +52,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\verify_shared_core.ps1
 成功標記 `NCL_SHARED_CORE_GATE_PASS`；驗證共用模組編譯與既有國圖
 回歸測試。這不等於午夜兩筆的實際預約成功，也不會開 Chrome。
 舊的 `verify_ncl_release.ps1` 專屬已封版分支，不應用來測試本整合支線。
+
+## 第二刀｜國圖獨立 Adapter（未註冊主路由）
+
+- 新增 `src/platforms/ncl_openlab.py`，提供與平台模組一致的
+  `nodriver_ncl_main(tab, url, config_dict)` 入口。
+- **此入口目前只回報手動模式，絕不選時段、刷新或送出**。
+  目前不修改 `src/nodriver_tixcraft.py` URL 分派與 `settings.py`。
+- 若由明確授權的呼叫者執行 `nodriver_ncl_booking(..., auto_submit=True)`，
+  必須通過日期、房間、時段與國圖官方主機驗證，才將**單筆**
+  操作交給已存在的 `ensure_date_grid`／`book_one_target`。
+  結果不明原樣回傳，不重送。兩筆模式仍歸原本的獨立控制程式。
+- 新增 `tests/test_ncl_openlab_adapter.py` 八項模擬測試；
+  `verify_shared_core.ps1` 增加 Adapter 編譯。預期總測試數
+  **181**，尚待 Mac 執行結果確認。
+- 原本 Windows GUI 與 Mac 離線測試流程不變；
+  `main` 與固定 RC 的 SHA 沒有修改。
