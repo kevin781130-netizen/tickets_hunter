@@ -42,7 +42,9 @@ class SelectionDiagnosticsTests(unittest.TestCase):
     def test_read_only_dom_and_explicit_date(self):
         script = diagnostic_script(DAY)
         self.assertIn("11/11", script)
-        self.assertIn('^P03(?:\\s|$)', script)
+        self.assertIn(r'^P0[123](?=\s|$)', script)
+        self.assertIn('roomCode(el) === "P03"', script)
+        self.assertIn('roomCodes = ["P01", "P02", "P03"]', script)
         for forbidden in (".click(", ".submit(", "fetch(", "XMLHttpRequest",
                           "location.reload", "document.cookie", "outerHTML",
                           "localStorage"):
