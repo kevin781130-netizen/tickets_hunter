@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
+sys.path.insert(0, str(HERE))
 
 try:
     import tkinter as tk
@@ -23,6 +24,9 @@ from ncl_openlab_schedule import TAIPEI_TZ
 if TK_OK:
     import ncl_openlab_picker as picker_mod
     import ncl_openlab_control as ctl
+    import ncl_openlab_auth as au
+    import ncl_openlab_credentials as cred
+    from test_ncl_openlab_credentials import FailLikeBackend, MemoryBackend
 
 STUB = HERE / "fixtures" / "ncl_stub_engine.py"
 NOW = datetime(2026, 11, 4, 12, 0, 0, tzinfo=TAIPEI_TZ)
@@ -32,18 +36,23 @@ def stub_command(argv, executable=None):
     return [sys.executable, str(STUB), *argv]
 
 
-@unittest.skipUnless(TK_OK, TK_WHY)
-class PickerWindowTests(unittest.TestCase):
-    def make(self, *, now=None, mode="success", wait="0.5"):
+class WindowHelpers:
+    """make/pump/configure for tests that drive the real window."""
+
+    def make(self, *, now=None, mode="success", wait="0.5", store=None, site=None, auth=None):
         import tempfile
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        patcher = patch.dict(os.environ, {"NCL_STUB_MODE": mode, "NCL_STUB_WAIT": wait})
+        env = {"NCL_STUB_MODE": mode, "NCL_STUB_WAIT": wait}
+        if auth:
+            env["NCL_STUB_AUTH"] = auth
+        patcher = patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
         win = picker_mod.BookingPicker(
             history_path=Path(tmp.name) / "history.jsonl", lock_path=Path(tmp.name) / "run.lock",
-            now=now or (lambda: NOW), command_builder=stub_command)
+            now=now or (lambda: NOW), command_builder=stub_command,
+            credential_store=store or cred.CredentialStore(MemoryBackend()), site=site)
         self.addCleanup(lambda: (win.supervisor and win.supervisor.process
                                  and win.supervisor.process.poll() is None
                                  and win.supervisor.process.kill()))
@@ -85,6 +94,10 @@ class PickerWindowTests(unittest.TestCase):
         win.authorize_submit.set(authorize)
         win._refresh_all()
 
+
+
+@unittest.skipUnless(TK_OK, TK_WHY)
+class PickerWindowTests(WindowHelpers, unittest.TestCase):
     # ------------------------------------------------------------- defaults
     def test_default_start_is_seven_days_before_midnight_and_editable(self):
         win = self.make()
@@ -290,6 +303,125 @@ class PickerWindowTests(unittest.TestCase):
             destroy.assert_called_once()
         self.assertTrue(sup.cancel_requested)
         self.pump(win, lambda: sup.state == "CANCELLED")
+
+
+@unittest.skipUnless(TK_OK, TK_WHY)
+class LoginPanelTests(WindowHelpers, unittest.TestCase):
+    """Credential box, login status and the auth flags (inherits the window helpers)."""
+
+    def fillable_site(self):
+        site = au.load_site()
+        site["login"] = {**site["login"], "account_selector": "#acct", "password_selector": "#pass"}
+        return site
+
+    def test_password_box_is_masked_and_saving_never_keeps_the_password(self):
+        store = cred.CredentialStore(MemoryBackend())
+        win = self.make(store=store)
+        self.assertEqual(win.password_entry.cget("show"), "●")
+        win.card_var.set("A123456789")
+        win.password_var.set("pw-Secret-1")
+        win._save_credentials()
+        self.assertEqual(store.load(), ("A123456789", "pw-Secret-1"))
+        self.assertEqual((win.password_var.get(), win.card_var.get()), ("", ""))
+        self.assertIn("A1****89", win.cred_status.cget("text"))
+        self.assertNotIn("pw-Secret-1", win.cred_status.cget("text") + win.summary.cget("text"))
+        self.assertEqual(self.dialogs[-1][0], "showinfo")
+
+    def test_bad_input_and_insecure_backends_are_refused_and_the_password_is_cleared(self):
+        win = self.make(store=cred.CredentialStore(MemoryBackend()))
+        win.card_var.set("A123456789")
+        win.password_var.set("")
+        win._save_credentials()
+        self.assertEqual(self.dialogs[-1][0], "showwarning")
+        win = self.make(store=cred.CredentialStore(FailLikeBackend()))
+        win.card_var.set("A123456789")
+        win.password_var.set("pw-Secret-1")
+        win._save_credentials()
+        self.assertIn("沒有可用的安全金鑰庫", self.dialogs[-1][2])
+        self.assertEqual(win.password_var.get(), "")
+        self.assertIn("無法儲存", win.cred_status.cget("text"))
+
+    def test_delete_asks_first_and_removes_everything(self):
+        store = cred.CredentialStore(MemoryBackend())
+        store.save("A123456789", "pw-Secret-1")
+        win = self.make(store=store)
+        self.assertIn("已安全儲存", win.cred_status.cget("text"))
+        self.confirm = False
+        win._delete_credentials()
+        self.assertTrue(store.has_saved())
+        self.confirm = True
+        win._delete_credentials()
+        self.assertFalse(store.has_saved())
+        self.assertIn("尚未儲存", win.cred_status.cget("text"))
+
+    def test_saved_login_option_is_unavailable_while_the_login_dom_is_unverified(self):
+        store = cred.CredentialStore(MemoryBackend())
+        store.save("A123456789", "pw-Secret-1")
+        win = self.make(store=store)                     # default site config: selectors null
+        self.assertEqual(str(win.saved_login_check.cget("state")), "disabled")
+        self.assertIn("NOT_VERIFIED", win.saved_login_note.cget("text"))
+        self.assertFalse(win.use_saved_login.get())
+
+    def test_saved_login_option_needs_saved_credentials_and_verified_fields(self):
+        store = cred.CredentialStore(MemoryBackend())
+        win = self.make(store=store, site=self.fillable_site())
+        self.assertEqual(str(win.saved_login_check.cget("state")), "disabled")      # nothing saved
+        store.save("A123456789", "pw-Secret-1")
+        win._refresh_credentials()
+        self.assertEqual(str(win.saved_login_check.cget("state")), "normal")
+        self.assertEqual(win.saved_login_note.cget("text"), "")
+
+    def test_start_passes_auth_flags_but_never_the_password(self):
+        store = cred.CredentialStore(MemoryBackend())
+        store.save("A123456789", "pw-Secret-1")
+        win = self.make(store=store, site=self.fillable_site(), auth="LOGIN_SUCCESS", wait="0.3")
+        self.configure(win, start=NOW + timedelta(minutes=5))
+        win.use_saved_login.set(True)
+        win._start()
+        sup = win.supervisor
+        self.assertIn("--auth-check", sup.argv)
+        self.assertIn("--use-saved-login", sup.argv)
+        self.assertNotIn("pw-Secret-1", " ".join(sup.argv))
+        self.assertNotIn("A123456789", " ".join(sup.argv))
+        self.assertTrue(self.pump(win, lambda: sup.state in ctl.FINAL_STATES, 20))
+
+    def test_without_the_option_the_saved_login_flag_is_not_passed(self):
+        win = self.make(auth="LOGIN_SUCCESS", wait="0.3")
+        self.configure(win, start=NOW + timedelta(minutes=5))
+        win._start()
+        self.assertIn("--auth-check", win.supervisor.argv)
+        self.assertNotIn("--use-saved-login", win.supervisor.argv)
+        self.pump(win, lambda: win.supervisor.state in ctl.FINAL_STATES, 20)
+
+    def test_login_status_is_shown_and_the_manual_button_is_only_a_fallback(self):
+        win = self.make(auth="CAPTCHA_WAITING", wait="1.5")
+        self.configure(win, start=NOW + timedelta(minutes=5))
+        win._start()
+        sup = win.supervisor
+        self.assertTrue(self.pump(win, lambda: sup.auth_state == "CAPTCHA_WAITING"))
+        self.assertIn("輸入圖片驗證碼", win.auth_label.cget("text"))
+        self.assertEqual(sup.state, "LOGIN")
+        self.assertFalse(win.login_button.enabled, "no manual button while a CAPTCHA is expected")
+        self.assertTrue(self.pump(win, lambda: sup.auth_state == "LOGIN_SUCCESS"))
+        self.assertIn("登入成功", win.auth_label.cget("text"))
+        self.pump(win, lambda: sup.state in ctl.FINAL_STATES, 20)
+
+    def test_manual_confirmation_button_appears_for_inconclusive_pages(self):
+        win = self.make(auth="AUTH_INTERACTION_REQUIRED")
+        self.configure(win, start=NOW + timedelta(minutes=5))
+        win._start()
+        sup = win.supervisor
+        self.assertTrue(self.pump(win, lambda: sup.auth_state == "AUTH_INTERACTION_REQUIRED"))
+        self.assertTrue(win.login_button.enabled)
+        win._confirm_login()
+        self.assertTrue(self.pump(win, lambda: sup.auth_state == "LOGIN_SUCCESS"))
+        self.pump(win, lambda: sup.state in ctl.FINAL_STATES, 20)
+
+    def test_terms_checkbox_explains_the_version_rule(self):
+        import inspect
+        source = inspect.getsource(picker_mod.BookingPicker._build)
+        self.assertIn("同一版本", source)
+        self.assertIn("重新同意", source)
 
 
 @unittest.skipUnless(TK_OK, TK_WHY)

@@ -28,11 +28,20 @@ def main():
     print("ARGS " + json.dumps({k: str(getattr(args, k)) for k in keys}, ensure_ascii=False),
           flush=True)
     say("LAUNCHING")
-    say("LOGIN")
-    first = sys.stdin.readline().strip().upper()
-    if first == "CANCEL":
-        say("DONE", outcome="CANCELLED_BEFORE_START")
-        return
+    auth = os.environ.get("NCL_STUB_AUTH")
+    if auth:      # auth-check engines do not wait for a keyboard Enter
+        say("LOGIN", auth=auth, detail="")
+        if auth == "AUTH_INTERACTION_REQUIRED":
+            sys.stdin.readline()          # the manual-confirmation fallback
+        else:
+            time.sleep(float(os.environ.get("NCL_STUB_AUTH_WAIT", "0.6")))
+        say("LOGIN", auth="LOGIN_SUCCESS", detail="")
+    else:
+        say("LOGIN")
+        first = sys.stdin.readline().strip().upper()
+        if first == "CANCEL":
+            say("DONE", outcome="CANCELLED_BEFORE_START")
+            return
     cancelled = threading.Event()
 
     def watch():

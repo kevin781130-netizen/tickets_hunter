@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "_comment": "NCL 網站入口與登入相關的已知事實。標示 NOT_VERIFIED 的項目未經實機 DOM 確認；登入欄位為 null 時一律由使用者手動登入，程式不猜 selector。",
+  "session": {
+    "logout_label": "登出",
+    "records_label": "我的紀錄",
+    "welcome_prefix": "歡迎",
+    "status": "NOT_VERIFIED",
+    "evidence": "標籤取自使用者 2026-11-04 的截圖（首頁與多媒體創意實驗中心頁右上角與歡迎字樣）；實際 DOM 結構未驗證。"
+  },
+  "terms": {
+    "marker_text": "是否同意以上規範",
+    "status": "NOT_VERIFIED",
+    "evidence": "取自使用者截圖的規範對話框；按鈕 #agree-btn 已在既有實機流程驗證，版本雜湊的容器尚未驗證。"
+  },
+  "login": {
+    "account_selector": null,
+    "password_selector": null,
+    "status": "NOT_VERIFIED",
+    "evidence": "登入頁 DOM 尚未實機盤點。執行 python src/ncl_openlab_auth.py --probe-login 取得欄位結構後，才可填入上面兩個 selector。"
+  }
+}

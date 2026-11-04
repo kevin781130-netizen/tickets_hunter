@@ -17,6 +17,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from ncl_openlab_auth import AUTH_LABELS
 from ncl_openlab_diag import explain_outcome
 from ncl_openlab_schedule import TAIPEI_TZ, format_countdown
 
@@ -156,11 +157,12 @@ class RunLock:
 
 # ------------------------------------------------------------- engine side
 class CancelWatcher:
-    """Reads CANCEL from stdin after the login prompt (never before it)."""
+    """Reads CANCEL / READY from stdin (READY = the user's manual 'I am logged in' override)."""
 
     def __init__(self, stream=None):
         self.stream = stream or sys.stdin
         self.event = threading.Event()
+        self.ready = threading.Event()
         self._thread = None
 
     def start(self):
@@ -172,14 +174,20 @@ class CancelWatcher:
     def _run(self):
         try:
             for line in self.stream:
-                if line.strip().upper() == "CANCEL":
+                word = line.strip().upper()
+                if word == "CANCEL":
                     self.event.set()
                     return
+                if word == "READY":
+                    self.ready.set()
         except (OSError, ValueError):
             pass
 
     def is_set(self):
         return self.event.is_set()
+
+    def is_ready(self):
+        return self.ready.is_set()
 
 
 # ---------------------------------------------------------------- history
@@ -219,6 +227,7 @@ class RunSupervisor:
         self._popen, self._cwd, self._now = popen, cwd, now
         self._history_path, self._lock = history_path, RunLock(lock_path, alive=alive)
         self.state, self.run_at, self.clock_offset = "IDLE", None, 0.0
+        self.auth_state, self.auth_detail = None, ""
         self.outcome, self.process = None, None
         self.log = []          # (timestamp text, message)
         self.cancel_requested = False
@@ -260,6 +269,7 @@ class RunSupervisor:
         self.process = self._popen(self.argv, **kwargs)
         self.state, self.outcome, self.cancel_requested = "LAUNCHING", None, False
         self._finalized, self.run_at = False, None
+        self.auth_state, self.auth_detail = None, ""
         self._lines = queue.Queue()
         threading.Thread(target=self._read, args=(self.process, self._lines), daemon=True).start()
         self._say("啟動預約程序")
@@ -324,12 +334,20 @@ class RunSupervisor:
         if event is None:
             return
         state = event["state"]
+        if isinstance(event.get("auth"), str) and event["auth"] in AUTH_LABELS:
+            changed = (event["auth"], str(event.get("detail", ""))) != (self.auth_state, self.auth_detail)
+            self.auth_state, self.auth_detail = event["auth"], str(event.get("detail", ""))
+            if changed:
+                self._say("登入：" + AUTH_LABELS[self.auth_state]
+                          + (f"（{self.auth_detail}）" if self.auth_detail
+                             and self.auth_detail != AUTH_LABELS[self.auth_state] else ""))
         if state == "DONE":
             self.outcome = str(event.get("outcome", ""))
             self._finish(ui_state_for_outcome(self.outcome))
             return
         if self.state in FINAL_STATES:
             return
+        entering = state != self.state
         self.state = state
         if state == "STANDBY":
             from ncl_openlab_schedule import parse_run_at
@@ -338,7 +356,8 @@ class RunSupervisor:
             except ValueError:
                 self.run_at = None
             self.clock_offset = float(event.get("clock_offset", 0.0) or 0.0)
-        self._say(STATE_LABELS[state])
+        if entering:
+            self._say(STATE_LABELS[state])
 
     def _on_exit(self):
         code = self.process.wait() if self.process is not None else None

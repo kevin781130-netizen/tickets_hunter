@@ -15,11 +15,18 @@ import contextvars
 import json
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urlsplit
 
+from ncl_openlab_auth import (
+    LOGIN_TIMEOUT, RECOVER_MARGIN, TERMS_JS, Authenticator, TermsConsent, _script,
+    load_site, probe_state, standby_guard, validate_terms,
+)
 from ncl_openlab_browser import cleanup_browser, start_browser
-from ncl_openlab_control import CancelWatcher, LOCK_PATH, RunLock, RunLockBusy, encode_event
+from ncl_openlab_control import (
+    PROJECT_ROOT, CancelWatcher, LOCK_PATH, RunLock, RunLockBusy, encode_event,
+)
+from ncl_openlab_credentials import CredentialStore
 from ncl_openlab_guard import NCL_HOST
 from ncl_openlab_probe import NCL_URL, TAIPEI_TZ
 from ncl_openlab_rooms import get_registry
@@ -38,6 +45,8 @@ DEFAULT_ROOM = "music"
 P03_SLOTS = _REGISTRY.room("p03").slots
 _TRACE = contextvars.ContextVar("ncl_trace", default=None)
 _MACHINE = contextvars.ContextVar("ncl_machine", default=False)
+_TERMS = contextvars.ContextVar("ncl_terms", default=None)
+TERMS_PATH = PROJECT_ROOT / "ncl_reports" / "ncl_terms_consent.json"
 
 
 def _emit(state, **fields):
@@ -304,17 +313,35 @@ def entry_script(mode, accept_terms=False):
                      json.dumps(room_profile(mode).entry_label, ensure_ascii=False)))
 
 
-async def ensure_date_grid(tab, *, accept_terms=False, mode="music"):
-    """Navigate visible site UI only, without inventing consent or retrying submit."""
+async def ensure_date_grid(tab, *, accept_terms=False, mode="music", terms=None):
+    """Navigate visible site UI only, without inventing consent or retrying submit.
+
+    With a TermsConsent store the rules dialog is auto-accepted ONLY when its exact
+    version (content hash) was agreed to by the user before; a new or changed
+    version is left for the user to read and accept, then remembered.
+    """
     if mode not in ROOM_MODES:
         return "INVALID_ROOM_MODE"
     if not await at_official_host(tab):
         return "WRONG_HOST"
-    script = entry_script(mode, accept_terms)
+    terms = terms if terms is not None else _TERMS.get()
+    allow = accept_terms
+    if terms is not None:
+        info = validate_terms(await tab.evaluate(
+            _script(TERMS_JS, MARKER=load_site()["terms"]["marker_text"])))
+        if info and info["present"]:
+            terms.pending = info["hash"]
+            allow = bool(accept_terms and terms.is_consented(info["hash"]))
+        elif info is None:
+            allow = False        # cannot read the dialog: never auto-accept blind
+    script = entry_script(mode, allow)
     code = "ENTRY_NOT_FOUND_OR_AMBIGUOUS"
     for _ in range(12):
         code = await tab.evaluate(script)
         if code == "GRID_READY":
+            if terms is not None and terms.pending:
+                terms.record(terms.pending)   # the user (or their consented version) agreed
+                terms.pending = None
             return code
         if code not in ("MULTIMEDIA_OPENED", "AGREEMENT_CLICKED", "STATUS_ROOM_OPENED"):
             return code
@@ -510,7 +537,10 @@ async def refresh_booking_grid(tab, *, mode, accept_terms):
     except Exception as exc:
         # Network loss or a dead tab: report it, never turn it into a submit.
         return "REFRESH_FAILED_" + type(exc).__name__
-    return await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+    if status != "GRID_READY" and await probe_state(tab) in ("LOGIN_REQUIRED", "OFF_SITE"):
+        return "SESSION_EXPIRED"   # the site sent us to its login: nothing may be booked
+    return status
 
 
 async def wait_until_release(tab, day, *, mode, accept_terms,
@@ -649,27 +679,85 @@ def preflight(day, priorities, *, mode, auto_submit, dry_run, reserve_two):
     return None
 
 
+async def _enter_date_grid(tab, auth, *, mode, accept_terms, cancelled, deadline):
+    """Auth mode: reach the date grid without a keyboard Enter. Waits for the user only
+    where a human must act (rules not yet accepted, or an unverified lobby category)."""
+    started, tries = auth.clock.now(), 0
+    while True:
+        status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+        if status == "GRID_READY":
+            return None
+        if status in ("AGREEMENT_REQUIRED", "ENTRY_MANUAL_REQUIRED"):
+            auth._set("AUTH_INTERACTION_REQUIRED", (
+                "請在瀏覽器親自閱讀並按「同意」（此規範版本尚未同意過，或內容已更新）"
+                if status == "AGREEMENT_REQUIRED" else
+                "請在瀏覽器手動開啟此設備的日期頁（設備類別尚未實機確認）"))
+            if cancelled():
+                return "CANCELLED_BEFORE_START"
+            now = auth.clock.now()
+            if deadline is not None and now >= deadline:
+                return "AUTH_NOT_COMPLETED_BEFORE_START"
+            if (now - started).total_seconds() > auth.timeout:
+                return "AUTH_NO_RESPONSE"
+            await auth.clock.sleep(auth.poll)
+            continue
+        tries += 1
+        if await probe_state(tab, auth.site) in ("LOGIN_REQUIRED", "OFF_SITE") and tries <= 2:
+            code = await auth.ensure(deadline=deadline, reason="expired")
+            if code:
+                return code
+            continue
+        if tries >= 3:
+            return "DATE_GRID_NOT_READY_" + str(status)
+        await auth.clock.sleep(auth.poll)
+
+
 async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
                  accept_terms, reserve_two, retry_interval, retry_window,
                  dry_run, extras, run_at=None, clock=None, machine=False,
-                 late_grace_seconds=LATE_GRACE_SECONDS):
+                 late_grace_seconds=LATE_GRACE_SECONDS, auth_check=False,
+                 use_saved_login=False, login_timeout=LOGIN_TIMEOUT):
     """The booking state machine itself (shared by every room and start time)."""
-    _emit("LOGIN")
-    print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
-    answer = await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
-    if str(answer).strip().upper() == "CANCEL":
-        return "CANCELLED_BEFORE_START"
-    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
-    if status == "AGREEMENT_REQUIRED":
-        print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
-        answer = await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+    watcher = auth = None
+    if auth_check:
+        # Session check instead of a keyboard Enter: reuse a valid login, otherwise wait
+        # for the user to type the picture CAPTCHA, and confirm from the real page state.
+        watcher = CancelWatcher().start() if machine else None
+        cancelled = watcher.is_set if watcher else (lambda: False)
+        if run_at is None and not now_mode and not dry_run:
+            run_at = release_time(day)    # the default start goes through the same Timeline
+        auth = Authenticator(
+            tab, clock=clock, cancelled=cancelled,
+            confirmed=watcher.is_ready if watcher else None,
+            emit=lambda state, detail: _emit("LOGIN", auth=state, detail=detail),
+            credentials=(lambda: CredentialStore().load()) if use_saved_login else None,
+            timeout=login_timeout)
+        deadline = (run_at - timedelta(seconds=RECOVER_MARGIN)) if run_at else None
+        _emit("LOGIN", auth="LOGIN_VERIFYING", detail="檢查登入狀態")
+        code = await auth.ensure(deadline=deadline)
+        if code:
+            return code
+        code = await _enter_date_grid(tab, auth, mode=mode, accept_terms=accept_terms,
+                                      cancelled=cancelled, deadline=deadline)
+        if code:
+            return code
+    else:
+        _emit("LOGIN")
+        print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
+        answer = await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
         if str(answer).strip().upper() == "CANCEL":
             return "CANCELLED_BEFORE_START"
-        status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
-    if status == "ENTRY_MANUAL_REQUIRED":
-        raise RuntimeError("DATE_GRID_NOT_READY_ENTRY_MANUAL_REQUIRED")
-    if status != "GRID_READY":
-        raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
+        status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+        if status == "AGREEMENT_REQUIRED":
+            print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
+            answer = await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+            if str(answer).strip().upper() == "CANCEL":
+                return "CANCELLED_BEFORE_START"
+            status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
+        if status == "ENTRY_MANUAL_REQUIRED":
+            raise RuntimeError("DATE_GRID_NOT_READY_ENTRY_MANUAL_REQUIRED")
+        if status != "GRID_READY":
+            raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
     problem = preflight(day, priorities, mode=mode, auto_submit=auto_submit,
                         dry_run=dry_run, reserve_two=reserve_two)
     if problem:
@@ -679,7 +767,8 @@ async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
         outcome, extras["diagnosis"] = await run_dry_run(tab, day, priorities, mode)
         return outcome
     if not now_mode:
-        watcher = CancelWatcher().start() if machine else None
+        if watcher is None and machine:
+            watcher = CancelWatcher().start()
         timeline = None
         if run_at is not None:
             timeline = Timeline(
@@ -697,6 +786,21 @@ async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
                   clock_offset=getattr(timeline.clock, "offset_seconds", 0.0))
         else:
             _emit("STANDBY", run_at=release_time(day).isoformat(), clock_offset=0.0)
+        if auth is not None and timeline is not None:
+            try:
+                guard = await standby_guard(
+                    auth, timeline,
+                    real_check=lambda: refresh_booking_grid(
+                        tab, mode=mode, accept_terms=accept_terms),
+                    reenter=lambda: ensure_date_grid(tab, accept_terms=accept_terms, mode=mode))
+            except ScheduleMissed:
+                return "RUN_AT_MISSED"
+            except ScheduleCancelled:
+                return "CANCELLED_BEFORE_START"
+            if guard:
+                return guard
+            _emit("STANDBY", run_at=run_at.isoformat(),
+                  clock_offset=getattr(timeline.clock, "offset_seconds", 0.0))
         status = await wait_until_release(
             tab, day, mode=mode, accept_terms=accept_terms, timeline=timeline,
             max_wait_seconds=(MAX_CUSTOM_WAIT_SECONDS if timeline else 900))
@@ -761,12 +865,14 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    retry_window=RETRY_WINDOW_SECONDS,
                    dry_run=False, report_dir=None, screenshot=False,
                    run_at=None, clock=None, machine=False, run_lock=None,
-                   late_grace_seconds=LATE_GRACE_SECONDS):
+                   late_grace_seconds=LATE_GRACE_SECONDS, auth_check=False,
+                   use_saved_login=False, login_timeout=LOGIN_TIMEOUT, terms=None):
     import zendriver as uc
 
     if dry_run and auto_submit:
         return "INVALID_DRY_RUN_WITH_AUTO_SUBMIT"
     machine_token = _MACHINE.set(bool(machine))
+    terms_token = _TERMS.set(terms)
     _emit("LAUNCHING")
     browser = await start_browser(uc)
     trace, extras, tab = [], {}, None
@@ -779,7 +885,9 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             mode=mode, accept_terms=accept_terms, reserve_two=reserve_two,
             retry_interval=retry_interval, retry_window=retry_window,
             dry_run=dry_run, extras=extras, run_at=run_at, clock=clock,
-            machine=machine, late_grace_seconds=late_grace_seconds)
+            machine=machine, late_grace_seconds=late_grace_seconds,
+            auth_check=auth_check, use_saved_login=use_saved_login,
+            login_timeout=login_timeout)
         return outcome
     except BaseException as exc:
         outcome = "EXCEPTION_" + type(exc).__name__
@@ -800,6 +908,7 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                 schedule={"run_at": run_at.isoformat() if run_at else None,
                           "clock_offset_seconds": getattr(clock, "offset_seconds", 0.0)})
         _MACHINE.reset(machine_token)
+        _TERMS.reset(terms_token)
         if outcome == "CANCELLED_BEFORE_START":
             print("已取消排程，關閉瀏覽器。")
         else:
@@ -857,6 +966,14 @@ def build_parser():
                         help="確認接受此房型尚未實機驗證的風險（新增房型設定要求時才需要）")
     parser.add_argument("--machine-status", action="store_true",
                         help="供前端使用：輸出 @@NCL 狀態行，並在待命時接受 stdin 的 CANCEL")
+    parser.add_argument("--auth-check", action="store_true",
+                        help="以登入狀態機取代「登入後按 Enter」：沿用有效登入，否則等你輸入驗證碼並自動確認；"
+                             "待命期間監看登入狀態")
+    parser.add_argument("--use-saved-login", action="store_true",
+                        help="登入頁出現時，把系統金鑰庫中的帳密填入官方登入表單（驗證碼與登入鈕仍由你操作）；"
+                             "需 --auth-check")
+    parser.add_argument("--login-timeout-minutes", type=int, default=int(LOGIN_TIMEOUT // 60),
+                        help="等待你完成登入／驗證碼的上限分鐘數（1–60，預設 10）")
     return parser
 
 
@@ -944,6 +1061,10 @@ def main():
     priorities = resolve_priorities(parser, args)
     if args.dry_run and args.auto_submit:
         parser.error("--dry-run 為唯讀診斷，不可與 --auto-submit 併用")
+    if args.use_saved_login and not args.auth_check:
+        parser.error("--use-saved-login 需要同時指定 --auth-check")
+    if not 1 <= args.login_timeout_minutes <= 60:
+        parser.error("--login-timeout-minutes 須為 1–60")
     if args.dry_run and args.reserve_two:
         parser.error("--dry-run 不可與 --reserve-two 併用")
     if args.screenshot and not (args.report_dir or args.dry_run):
@@ -993,7 +1114,11 @@ def main():
                                       dry_run=args.dry_run, report_dir=report_dir,
                                       screenshot=args.screenshot, run_at=run_at,
                                       clock=clock, machine=args.machine_status,
-                                      run_lock=lock))
+                                      run_lock=lock, auth_check=args.auth_check,
+                                      use_saved_login=args.use_saved_login,
+                                      login_timeout=args.login_timeout_minutes * 60.0,
+                                      terms=TermsConsent(os.environ.get("NCL_TERMS_PATH")
+                                                         or TERMS_PATH)))
     finally:
         lock.release()
     print(json.dumps({"result": status}, ensure_ascii=False))

@@ -16,10 +16,12 @@ import tkinter as tk
 from datetime import date, datetime, timedelta
 from tkinter import messagebox, ttk
 
+from ncl_openlab_auth import AUTH_LABELS, autofill_available, load_site
 from ncl_openlab_control import (
     ACTIVE_STATES, CANCELLABLE, HISTORY_PATH, LOCK_PATH, PROJECT_ROOT, STATE_LABELS,
     DuplicateStart, RunSupervisor, read_history,
 )
+from ncl_openlab_credentials import CredentialError, CredentialStore
 from ncl_openlab_picker_model import (
     ROOM_CHOICES, TAIPEI, available_slots, build_booking_args, default_run_at_text,
     engine_command, parse_start_fields, room_requires_ack, start_notes,
@@ -86,8 +88,11 @@ class FlatButton(tk.Label):
 
 class BookingPicker(tk.Tk):
     def __init__(self, *, popen=subprocess.Popen, history_path=HISTORY_PATH,
-                 lock_path=LOCK_PATH, now=None, executable=None, command_builder=engine_command):
+                 lock_path=LOCK_PATH, now=None, executable=None, command_builder=engine_command,
+                 credential_store=None, site=None):
         super().__init__()
+        self._store = credential_store or CredentialStore()
+        self._site = site or load_site()
         self._popen, self._history_path, self._lock_path = popen, history_path, lock_path
         self._command_builder = command_builder
         self._now = now or (lambda: datetime.now(TAIPEI))
@@ -108,6 +113,9 @@ class BookingPicker(tk.Tk):
         self.authorize_submit = tk.BooleanVar(value=False)
         self.accept_terms = tk.BooleanVar(value=False)
         self.ack_unverified = tk.BooleanVar(value=False)
+        self.card_var = tk.StringVar()
+        self.password_var = tk.StringVar()
+        self.use_saved_login = tk.BooleanVar(value=False)
         self.slots = []  # Selection order is also booking order.
         self.supervisor = None
         self._start_edited = False
@@ -118,6 +126,7 @@ class BookingPicker(tk.Tk):
         self._render_calendar()
         self._render_slots()
         self._refresh_all()
+        self._refresh_credentials()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(TICK_MS, self._tick)
 
@@ -134,6 +143,8 @@ class BookingPicker(tk.Tk):
         self.countdown_label = tk.Label(status_row, bg=PAPER, fg=DARK, anchor="e",
                                         font=ui_font(16, True))
         self.countdown_label.pack(side="right")
+        self.auth_label = tk.Label(footer, bg=PAPER, fg=MUTED, anchor="w", font=ui_font(10))
+        self.auth_label.pack(fill="x")
         self.summary = tk.Label(footer, bg=PAPER, fg=DARK, justify="left", anchor="w",
                                 font=ui_font(10))
         self.summary.pack(fill="x", pady=(4, 6))
@@ -142,7 +153,7 @@ class BookingPicker(tk.Tk):
         self.start_button = FlatButton(buttons, "啟動排程", self._start, primary=True,
                                        font=ui_font(12, True), pady=9)
         self.start_button.pack(side="left", fill="x", expand=True)
-        self.login_button = FlatButton(buttons, "我已登入，開始待命", self._confirm_login,
+        self.login_button = FlatButton(buttons, "已登入但偵測不到？手動確認", self._confirm_login,
                                        font=ui_font(11), pady=9)
         self.login_button.pack(side="left", fill="x", expand=True, padx=6)
         self.cancel_button = FlatButton(buttons, "取消排程", self._cancel,
@@ -240,9 +251,36 @@ class BookingPicker(tk.Tk):
         ttk.Checkbutton(when, text="啟動前以網路時間校正系統時鐘（失敗時改用系統時間）",
                         variable=self.sync_clock).pack(anchor="w", pady=(4, 0))
 
-        auth = tk.LabelFrame(main, text=" 5｜授權與條款 ", bg=PAPER, fg=DARK, padx=12, pady=8)
+        login = tk.LabelFrame(main, text=" 5｜登入與憑證 ", bg=PAPER, fg=DARK, padx=12, pady=8)
+        login.pack(fill="x", pady=(0, 11))
+        tk.Label(login, bg=PAPER, fg=MUTED, anchor="w", justify="left", font=ui_font(9),
+                 text="已登入時直接沿用；未登入時由你親自在瀏覽器輸入圖片驗證碼並登入，"
+                      "程式只確認結果，不辨識、不代填驗證碼。").pack(fill="x")
+        cred_row = tk.Frame(login, bg=PAPER)
+        cred_row.pack(fill="x", pady=(8, 0))
+        tk.Label(cred_row, text="閱覽證號", bg=PAPER, fg=DARK, font=ui_font(10)).pack(side="left")
+        self.card_entry = ttk.Entry(cred_row, textvariable=self.card_var, width=16)
+        self.card_entry.pack(side="left", padx=(4, 12))
+        tk.Label(cred_row, text="密碼", bg=PAPER, fg=DARK, font=ui_font(10)).pack(side="left")
+        self.password_entry = ttk.Entry(cred_row, textvariable=self.password_var, width=16, show="●")
+        self.password_entry.pack(side="left", padx=(4, 12))
+        FlatButton(cred_row, "安全儲存憑證", self._save_credentials).pack(side="left")
+        FlatButton(cred_row, "刪除已儲存憑證", self._delete_credentials).pack(side="left", padx=6)
+        self.cred_status = tk.Label(login, bg=PAPER, fg=DARK, anchor="w", font=ui_font(9))
+        self.cred_status.pack(fill="x", pady=(5, 0))
+        self.saved_login_check = ttk.Checkbutton(
+            login, text="登入頁出現時自動填入已儲存的帳密（驗證碼與登入鈕仍由我操作）",
+            variable=self.use_saved_login)
+        self.saved_login_check.pack(anchor="w", pady=(4, 0))
+        self.saved_login_note = tk.Label(login, bg=PAPER, fg=MUTED, anchor="w", font=ui_font(9))
+        self.saved_login_note.pack(fill="x")
+        tk.Label(login, bg=PAPER, fg=MUTED, anchor="w", font=ui_font(9),
+                 text="帳密只存在 macOS Keychain／Windows 憑證管理員，不會寫入檔案、環境變數或命令列。").pack(fill="x")
+
+        auth = tk.LabelFrame(main, text=" 6｜授權與條款 ", bg=PAPER, fg=DARK, padx=12, pady=8)
         auth.pack(fill="x", pady=(0, 11))
-        ttk.Checkbutton(auth, text="我已閱讀網站規範，並允許程式在網站顯示同意視窗時按「同意」",
+        ttk.Checkbutton(auth, text="我已閱讀網站規範；對我已親自同意過的同一版本，允許程式自動按「同意」"
+                                   "（規範內容更新時會請我重新同意）",
                         variable=self.accept_terms).pack(anchor="w")
         ttk.Checkbutton(auth, text="我明確授權正式送出預約（必須勾選）",
                         variable=self.authorize_submit,
@@ -251,7 +289,7 @@ class BookingPicker(tk.Tk):
             auth, text="我了解此設備尚未實機驗證，仍要嘗試（確認頁比對不符時不會送出）",
             variable=self.ack_unverified)
 
-        logs = tk.LabelFrame(main, text=" 6｜執行紀錄 ", bg=PAPER, fg=DARK, padx=8, pady=8)
+        logs = tk.LabelFrame(main, text=" 7｜執行紀錄 ", bg=PAPER, fg=DARK, padx=8, pady=8)
         logs.pack(fill="both", expand=True, pady=(0, 6))
         self.log_box = tk.Text(logs, height=7, wrap="word", state="disabled", bg="white",
                                fg=DARK, font=ui_font(9))
@@ -409,10 +447,52 @@ class BookingPicker(tk.Tk):
         self.start_button.configure(text="立即執行" if now_mode else "啟動排程")
         self._refresh_buttons()
 
+    def _refresh_credentials(self):
+        self.cred_status.config(text="憑證：" + self._store.describe())
+        saved = self._store.has_saved()
+        available = autofill_available(self._site)
+        self.saved_login_check.configure(state="normal" if saved and available else "disabled")
+        if not (saved and available):
+            self.use_saved_login.set(False)
+        self.saved_login_note.config(
+            text="" if available else "登入頁欄位尚未實機確認：不會自動填入，請手動登入（NOT_VERIFIED）")
+
+    def _save_credentials(self):
+        try:
+            self._store.save(self.card_var.get().strip(), self.password_var.get())
+        except CredentialError as exc:
+            messagebox.showwarning("無法儲存憑證", str(exc))
+            return
+        finally:
+            self.password_var.set("")      # never keep the password in the window
+        self.card_var.set("")
+        self._refresh_credentials()
+        messagebox.showinfo("已儲存", "憑證已存入系統金鑰庫。")
+
+    def _delete_credentials(self):
+        if not messagebox.askyesno("刪除憑證", "確定刪除已儲存的閱覽證號與密碼？"):
+            return
+        try:
+            self._store.delete()
+        except CredentialError as exc:
+            messagebox.showwarning("無法刪除", str(exc))
+        self._refresh_credentials()
+
+    def _auth_text(self):
+        sup = self.supervisor
+        if sup is None or sup.auth_state is None:
+            return ""
+        detail = sup.auth_detail if sup.auth_detail and sup.auth_detail != AUTH_LABELS[sup.auth_state] else ""
+        return "登入：" + AUTH_LABELS[sup.auth_state] + (f"（{detail}）" if detail else "")
+
     def _refresh_buttons(self):
         state = self.supervisor.state if self.supervisor else "IDLE"
         self.start_button.set_enabled(state not in ACTIVE_STATES)
-        self.login_button.set_enabled(state == "LOGIN")
+        # Manual confirmation is only a fallback when the page cannot be classified.
+        self.login_button.set_enabled(
+            state == "LOGIN" and (self.supervisor.auth_state in (None, "AUTH_INTERACTION_REQUIRED")
+                                  if self.supervisor else False))
+        self.auth_label.config(text=self._auth_text())
         self.cancel_button.set_enabled(state in CANCELLABLE)
         self.state_label.config(text=STATE_LABELS[state], fg=STATE_COLORS[state])
 
@@ -478,14 +558,16 @@ class BookingPicker(tk.Tk):
                 day=self.selected_date, room=self._room_key(), slots=self.slots,
                 immediate=immediate, run_at=run_at, auto_submit=self.authorize_submit.get(),
                 accept_terms=self.accept_terms.get(), ack_unverified=self.ack_unverified.get(),
-                sync_clock=self.sync_clock.get(), machine_status=True)
+                sync_clock=self.sync_clock.get(), machine_status=True, auth_check=True,
+                use_saved_login=self.use_saved_login.get())
         except ValueError as exc:
             messagebox.showwarning("請確認設定", str(exc))
             return
         lines = summary_lines(day=self.selected_date, room=self._room_key(), slots=self.slots,
                               immediate=immediate, run_at=run_at)
         text = ("將正式預約，並會真的送出：\n\n" + "\n".join(lines) +
-                "\n\n接著會開啟 Chrome，請登入國圖，再按「我已登入，開始待命」。\n"
+                "\n\n接著會開啟 Chrome：已登入會直接沿用；未登入時請在瀏覽器輸入圖片驗證碼並登入，"
+                "程式會自動確認登入狀態後進入待命。\n"
                 "送出後結果不明時不會重複送出；不保證預約成功，以網站結果為準。確定啟動？")
         if not messagebox.askyesno("正式預約確認", text, icon="warning"):
             return

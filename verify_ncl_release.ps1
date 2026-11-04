@@ -28,6 +28,8 @@ $sourceFiles = @(
     'src\ncl_openlab_schedule.py',
     'src\ncl_openlab_browser.py',
     'src\ncl_openlab_control.py',
+    'src\ncl_openlab_auth.py',
+    'src\ncl_openlab_credentials.py',
     'src\ncl_browser_lifecycle_smoke.py'
 )
 & $python -m py_compile @sourceFiles

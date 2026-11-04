@@ -27,6 +27,7 @@ class LauncherTests(unittest.TestCase):
         text = (ROOT / "launch_ncl_picker.cmd").read_text(encoding="utf-8")
         self.assertIn("pythonw.exe", text)
         self.assertIn(r"src\ncl_openlab_picker.py", text)
+        self.assertIn("keyring==25.6.0", text)            # Credential Manager access
 
     def test_macos_command_launcher_exists_and_is_wired_to_the_same_gui(self):
         path = ROOT / "launch_ncl_picker.command"
@@ -35,8 +36,11 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('cd "$(dirname "$0")"', text)
         self.assertIn("src/ncl_openlab_picker.py", text)
         self.assertIn("zendriver==0.16.0", text)          # same pin as requirement.txt
+        self.assertIn("keyring==25.6.0", text)            # Keychain access for saved logins
         self.assertIn("import tkinter", text)             # explains a Tk-less Python
-        self.assertIn("zendriver==0.16.0", (ROOT / "requirement.txt").read_text(encoding="utf-8"))
+        requirement = (ROOT / "requirement.txt").read_text(encoding="utf-8")
+        self.assertIn("zendriver==0.16.0", requirement)
+        self.assertIn("keyring==25.6.0", requirement)
         self.assertNotIn("\r", text, "CRLF would break the shebang on macOS")
 
     @unittest.skipUnless(shutil.which("bash"), "NOT_RUN: bash unavailable")

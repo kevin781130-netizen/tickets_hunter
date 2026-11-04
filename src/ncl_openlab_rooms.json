@@ -17,7 +17,7 @@
   },
   "templates": {
     "equipment_1h": {
-      "entry_label": null,
+      "entry_label": "創藝手作坊縫紉機",
       "flow": "hourly_slot",
       "slots": {
         "kind": "hourly",
@@ -29,7 +29,7 @@
       "submit_requires_ack": true,
       "evidence": {
         "live": "NOT_VERIFIED",
-        "live_notes": "2026-11-04 實機盤點：房型方塊與 .time-box[data-param1] 的 11 個一小時時段（僅縫紉機01 觀察到時段）；現況頁類別名、最後確認頁用字與成交尚未驗證，確認頁比對採房名且不符即不送出。",
+        "live_notes": "2026-11-04 實機盤點：房型方塊與 .time-box[data-param1] 的 11 個一小時時段（僅縫紉機01 觀察到時段）。設備類別「創藝手作坊縫紉機」取自使用者截圖，9 台設備出現在同一個日期頁推得屬同類別，點擊進入與最後確認頁用字、成交皆未驗證；確認頁比對採房名且不符即不送出。",
         "source": "ncl_reports/ncl_inventory_20261104_144349.json"
       }
     }

@@ -74,7 +74,8 @@ def start_notes(day, run_at):
 
 def build_booking_args(*, day, room, slots, immediate=False, auto_submit=False,
                        accept_terms=False, run_at=None, ack_unverified=False,
-                       sync_clock=False, machine_status=False):
+                       sync_clock=False, machine_status=False, auth_check=False,
+                       use_saved_login=False):
     """Return safe argv suffix; selecting two always means TWO reservations.
 
     Every slot must be known for its chosen room, with no duplicates. The
@@ -97,6 +98,8 @@ def build_booking_args(*, day, room, slots, immediate=False, auto_submit=False,
         raise ValueError("立即執行與自訂啟動時間不可同時使用")
     if run_at is not None and (not isinstance(run_at, datetime) or run_at.tzinfo is None):
         raise ValueError("啟動時間必須含時區")
+    if use_saved_login and not auth_check:
+        raise ValueError("自動填入登入資料需要同時啟用登入狀態檢查")
     if room_requires_ack(room) and not ack_unverified:
         # Never acknowledge an unverified room on the user's behalf.
         raise ValueError("此空間尚未實機驗證，請先勾選「我了解此設備尚未實機驗證」"
@@ -118,6 +121,10 @@ def build_booking_args(*, day, room, slots, immediate=False, auto_submit=False,
         args.append("--sync-clock")
     if machine_status:
         args.append("--machine-status")
+    if auth_check:
+        args.append("--auth-check")
+    if use_saved_login:
+        args.append("--use-saved-login")
     return args
 
 
