@@ -141,6 +141,111 @@ class RealBackendRoutingTests(unittest.TestCase):
         self.assertEqual(result, "CONFIRMED_SLOT_ID_UNKNOWN_STOP")
         self.assertEqual(len(calls), 1)
 
+    def test_second_booking_reenters_via_official_overview_not_login_root(self):
+        urls, tabs_seen, selections = [], [], []
+        class Tab:
+            async def get(self, url):
+                urls.append(url)
+                return self
+        tab = Tab()
+        class Browser:
+            stopped = True
+            async def get(self, url):
+                urls.append(url)
+                return tab
+        async def ready(*args, **kwargs):
+            return "GRID_READY"
+        async def enter(*args, **kwargs):
+            return ""
+        async def book(current_tab, day, candidates, *, selected_log=None,
+                       **kwargs):
+            tabs_seen.append(current_tab)
+            chosen = "12:00-13:00" if len(tabs_seen) == 1 else "17:00-18:00"
+            selections.append(chosen)
+            self.assertIn(chosen, candidates)
+            selected_log.append(chosen)
+            return "SUCCESS_PAGE_MATCHED"
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(
+                start=AsyncMock(return_value=Browser()))}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", enter),
+              patch.object(app, "book_one_target", book)):
+            status = asyncio.run(app.autobook(
+                DAY, ("16:00-17:00", "17:00-18:00"),
+                auto_submit=True, now_mode=True, mode="p03",
+                reserve_two=True, fallback_any_slot=True))
+        self.assertEqual(status, "TWO_BOOKINGS_CONFIRMED")
+        self.assertEqual(urls, [app.NCL_URL, app.NCL_MULTIMEDIA_OVERVIEW_URL])
+        self.assertIs(tabs_seen[0], tabs_seen[1])
+        self.assertNotIn("12:00-13:00", selections[1:])
+
+    def test_second_entry_login_redirect_stops_without_second_submit(self):
+        urls, attempts, ready_calls = [], [], []
+        class Tab:
+            async def get(self, url):
+                urls.append(url)
+                return self
+        class Browser:
+            stopped = True
+            async def get(self, url):
+                urls.append(url)
+                return Tab()
+        async def ready(*args, **kwargs):
+            ready_calls.append(1)
+            return ("GRID_READY" if len(ready_calls) == 1
+                    else "ENTRY_NOT_FOUND_OR_AMBIGUOUS")
+        async def enter(*args, **kwargs):
+            return ""
+        async def book(tab, day, candidates, *, selected_log=None, **kwargs):
+            attempts.append(1)
+            selected_log.append("12:00-13:00")
+            return "SUCCESS_PAGE_MATCHED"
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(
+                start=AsyncMock(return_value=Browser()))}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", enter),
+              patch.object(app, "book_one_target", book)):
+            status = asyncio.run(app.autobook(
+                DAY, ("16:00-17:00", "17:00-18:00"),
+                auto_submit=True, now_mode=True, mode="p03",
+                reserve_two=True, fallback_any_slot=True))
+        self.assertEqual(
+            status,
+            "FIRST_CONFIRMED_SECOND_NOT_ATTEMPTED_"
+            "GRID_NOT_READY_ENTRY_NOT_FOUND_OR_AMBIGUOUS")
+        self.assertEqual(attempts, [1])
+        self.assertEqual(urls, [app.NCL_URL, app.NCL_MULTIMEDIA_OVERVIEW_URL])
+
+    def test_second_entry_navigation_error_stops_with_first_confirmed(self):
+        attempts = []
+        class Tab:
+            async def get(self, url):
+                raise RuntimeError("site unavailable or requires login")
+        class Browser:
+            stopped = True
+            async def get(self, _url):
+                return Tab()
+        async def ready(*args, **kwargs):
+            return "GRID_READY"
+        async def enter(*args, **kwargs):
+            return ""
+        async def book(tab, day, candidates, *, selected_log=None, **kwargs):
+            attempts.append(1)
+            selected_log.append("12:00-13:00")
+            return "SUCCESS_PAGE_MATCHED"
+        with (patch.dict(sys.modules, {"zendriver": types.SimpleNamespace(
+                start=AsyncMock(return_value=Browser()))}),
+              patch.object(app, "ensure_date_grid", ready),
+              patch.object(app.asyncio, "to_thread", enter),
+              patch.object(app, "book_one_target", book)):
+            status = asyncio.run(app.autobook(
+                DAY, ("16:00-17:00", "17:00-18:00"),
+                auto_submit=True, now_mode=True, mode="p03",
+                reserve_two=True, fallback_any_slot=True))
+        self.assertEqual(
+            status, "FIRST_CONFIRMED_SECOND_NOT_ATTEMPTED_NAVIGATION_FAILED")
+        self.assertEqual(attempts, [1])
+
     def test_single_booking_prefers_selected_before_other_options(self):
         seen = []
         async def ready(*args, **kwargs):
