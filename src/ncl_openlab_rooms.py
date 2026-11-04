@@ -98,12 +98,22 @@ class RoomProfile:
 
 
 @dataclass(frozen=True)
+class CatalogUnit:
+    """Name-only inventory; no validated slots or booking engine profile."""
+    key: str
+    label: str
+    live: str
+    source: str
+
+
+@dataclass(frozen=True)
 class CategorySpec:
     key: str
     label: str
     booking_mode: str
     room_keys: tuple
     evidence: str
+    catalog_units: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -271,7 +281,7 @@ def _parse_room(key, raw, flows, templates=None):
 def _parse_categories(raw, rooms):
     """Validate screenshot-observed categories without inventing unit IDs."""
     _require(isinstance(raw, list) and bool(raw), "categories must be a non-empty list")
-    seen, assigned, categories = set(), set(), []
+    seen, assigned, catalog_keys, categories = set(), set(), set(), []
     for i, item in enumerate(raw):
         where = f"categories[{i}]"
         _require(isinstance(item, dict), f"{where} must be an object")
@@ -291,12 +301,35 @@ def _parse_categories(raw, rooms):
                  f"{where} onsite-only cannot include online units")
         _require(not (assigned & set(keys)), f"{where} room assigned twice")
         assigned.update(keys)
+        raw_units = item.get("catalog_units", [])
+        _require(isinstance(raw_units, list), f"{where}.catalog_units must be a list")
+        _require(mode != "ONSITE_ONLY" or not raw_units,
+                 f"{where} onsite-only cannot contain catalog units")
+        catalog_units = []
+        for j, raw_unit in enumerate(raw_units):
+            unit_where = f"{where}.catalog_units[{j}]"
+            _require(isinstance(raw_unit, dict), f"{unit_where} must be an object")
+            _require(set(raw_unit) == {"key", "label", "live", "source"},
+                     f"{unit_where} must have only name and evidence, never slots/flow")
+            unit_key = _text(raw_unit.get("key"), f"{unit_where}.key", 24)
+            _require(KEY_RE.fullmatch(unit_key) is not None
+                     and unit_key not in rooms and unit_key not in catalog_keys,
+                     f"{unit_where}.key must be unique and not an engine room")
+            _require(raw_unit.get("live") == "NOT_VERIFIED",
+                     f"{unit_where}.live must remain NOT_VERIFIED")
+            catalog_keys.add(unit_key)
+            catalog_units.append(CatalogUnit(
+                key=unit_key,
+                label=_text(raw_unit.get("label"), f"{unit_where}.label", 60),
+                live="NOT_VERIFIED",
+                source=_text(raw_unit.get("source"), f"{unit_where}.source", 200)))
         categories.append(CategorySpec(
             key=key,
             label=_text(item.get("label"), f"{where}.label", 40),
             booking_mode=mode,
             room_keys=tuple(keys),
-            evidence=_text(item.get("evidence"), f"{where}.evidence", 120)))
+            evidence=_text(item.get("evidence"), f"{where}.evidence", 120),
+            catalog_units=tuple(catalog_units)))
     _require(assigned == set(rooms), "each room must map to exactly one category")
     return tuple(categories)
 

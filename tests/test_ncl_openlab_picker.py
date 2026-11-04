@@ -20,7 +20,7 @@ class PickerModelTests(unittest.TestCase):
                          ("09:00-12:00", "13:00-16:00", "17:00-20:00"))
         self.assertEqual(available_slots("p03")[0], "09:00-10:00")
         self.assertEqual(available_slots("p03")[-1], "19:00-20:00")
-        self.assertEqual(len(ROOM_CHOICES), 11)  # music, p03 and 9 inventoried devices
+        self.assertEqual(len(ROOM_CHOICES), 29)  # 11 engine rooms + 18 catalog-only units
 
     def test_calendar_date_release_timezone(self):
         release = release_datetime(date(2026, 11, 12))

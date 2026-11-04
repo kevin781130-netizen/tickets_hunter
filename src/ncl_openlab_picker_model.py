@@ -12,6 +12,8 @@ from ncl_openlab_schedule import (
 # Room choices and slots come from ncl_openlab_rooms.json, so a room added to
 # the config appears in the GUI without any code change.
 ROOM_CHOICES = {key: profile.ui_label for key, profile in get_registry().rooms.items()}
+# Observed units appear in the picker only; they are not bookable engine profiles.
+ROOM_CHOICES.update({u.key: u.label for c in get_registry().categories for u in c.catalog_units})
 CATEGORY_CHOICES = {c.key: c.label for c in get_registry().categories}
 TAIPEI = TAIPEI_TZ
 ENGINE = Path(__file__).resolve().with_name("ncl_openlab_autobook.py")
@@ -27,13 +29,14 @@ SCHEDULE_ERRORS = {
 def room_keys_for_category(category):
     for c in get_registry().categories:
         if c.key == category:
-            return c.room_keys if c.booking_mode != "ONSITE_ONLY" else ()
+            return (c.room_keys + tuple(u.key for u in c.catalog_units)
+                    if c.booking_mode != "ONSITE_ONLY" else ())
     raise ValueError("未知的空間類別")
 
 
 def category_for_room(room):
     for c in get_registry().categories:
-        if room in c.room_keys:
+        if room in c.room_keys or any(u.key == room for u in c.catalog_units):
             return c.key
     raise ValueError("未知的房間／設備")
 
@@ -43,6 +46,8 @@ def category_notice(category):
         if c.key == category:
             if c.booking_mode == "ONSITE_ONLY":
                 return "僅供現場借用｜不可線上預約"
+            if not c.room_keys and c.catalog_units:
+                return "NOT_VERIFIED｜已盤點單位名稱；時段、流程與確認頁未驗證"
             if not c.room_keys:
                 return "NOT_VERIFIED｜房號、時段、確認頁待實機盤點"
             return ""
@@ -62,6 +67,8 @@ def selectable_slots(room):
 def available_slots(room):
     profile = get_registry().rooms.get(room)
     if profile is None:
+        if room in ROOM_CHOICES:
+            return ()  # catalog-only: zero verified slots
         raise ValueError("不支援的空間")
     return profile.slots
 
@@ -121,6 +128,8 @@ def build_booking_args(*, day, room, slots, immediate=False, auto_submit=False,
         raise ValueError("請先使用月曆選擇預約日期")
     if room not in ROOM_CHOICES:
         raise ValueError("請選擇正確空間")
+    if room not in get_registry().rooms:
+        raise ValueError("NOT_VERIFIED：此單位只有盤點名稱，沒有已驗證時段／預約流程，禁止提交")
     selected = tuple(slots)
     if len(selected) not in (1, 2):
         raise ValueError("請選擇一個或兩個時段")

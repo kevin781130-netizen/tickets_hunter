@@ -1,52 +1,46 @@
 # 國圖 OPEN LAB｜全中心類別盤點與實機驗收缺口
 
-基準：`26ad492cdfa7737cd12aac5a049dc6c73c9ea80b`；目標分支：`feat/ncl-openlab-booking`。
+基準：`3760c7214a6f1037b2877c8d6c4cc4396d2b9aea`；分支：`feat/ncl-openlab-booking`。
 
-## 14 類別（使用者網站截圖，非 DOM 完整驗證）
+## 2026-11-04 唯讀盤點（操作員切換，未經 DOM 類別關聯核實）
 
-| 類別 | 目前編入的實際單位 | 線上預約狀態 |
+依本機 `ncl_reports/ncl_inventory_20261104_180300.json` 的終端機輸出整理：所有 `operator_category` 均為 `OPERATOR_SELECTED_NOT_VERIFIED`。辨識到的名稱**不等於**時段、流程或可提交證據。
+
+| 類別 | 二層選單已盤點的單位 | 狀態 |
 |---|---|---|
-| 討論室 | 房號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 團練室 | 房號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 星際直播攝影棚 | 房號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 親子直播室 | 房號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 音樂創作室 | music（1） | 時段 DOM 曾觀察；最終提交 NOT_VERIFIED |
-| 影音欣賞區 | 不提供線上選擇 | **ONSITE_ONLY** |
-| 創藝手作坊縫紉機 | 縫紉機01–08、刺繡機01（共 9 個） | 01 時段曾觀察；其餘時段與提交 NOT_VERIFIED |
-| 個人直播室 | P03（1） | **LIVE_VERIFIED**：保留既有單筆成功證據 |
-| 動漫創作坊電腦 | 設備編號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 電神工作室 | 房號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 影印掃描用電腦 | 設備編號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 創藝手作坊電腦 | 設備編號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 數位科技實作區電腦 | 設備編號未知 | ONLINE_CANDIDATE / NOT_VERIFIED |
-| 語言學習區 | 不提供線上選擇 | **ONSITE_ONLY** |
+| 討論室 | 尚未取得房號 | 待盤點 |
+| 團練室 | 團練室 2 ~ 8 人（1） | NOT_VERIFIED |
+| 星際直播攝影棚 | 星際直播攝影棚 2 ~ 5 人（1） | NOT_VERIFIED |
+| 親子直播室 | 本次略過，單位未知 | 待盤點 |
+| 音樂創作室 | music（1） | 舊時段 DOM，提交 NOT_VERIFIED |
+| 影音欣賞區 | 無可預約單位 | ONSITE_ONLY |
+| 創藝手作坊縫紉機 | 縫紉機01–08、刺繡機01（9） | 只有縫紉機01曾觀察時段，提交 NOT_VERIFIED |
+| 個人直播室 | P03、P01、P02（3） | **僅 P03 LIVE_VERIFIED**；P01、P02 NOT_VERIFIED |
+| 動漫創作坊電腦 | AN01（1） | NOT_VERIFIED |
+| 雷神工作室 | 雷雕機 LASER（1） | NOT_VERIFIED |
+| 影印掃描用電腦 | SCAN01（1） | NOT_VERIFIED |
+| 創藝手作坊電腦 | DIY01（1） | NOT_VERIFIED |
+| 數位科技實作區電腦 | IT01–IT10（10，IT09 是 3D Scanner） | NOT_VERIFIED |
+| 語言學習區 | 無可預約單位 | ONSITE_ONLY |
 
-**已列入 JSON：11 個實際單位（1 個 LIVE_VERIFIED；10 個 NOT_VERIFIED）。** 另有 9 個候選類別尚未確認任何房號／設備；不能把「9 類」誤報成「9 台待驗證設備」。兩個現場借用類別永遠沒有正式預約選項。
+**合計 14 個類別、29 個已知單位名稱**，包含 11 個既有引擎 profile（1 個 LIVE_VERIFIED）與 **18 個僅有名稱的唯讀 `categories[].catalog_units`**。現場借用的 2 類不可預約。
 
-## 已有時段證據與邊界
+## 安全與技術邊界
 
-- P03：09:00–20:00 共 11 個一小時時段；單筆實機成功（證據見 `NCL_RC_CLOSEOUT.md`）。
-- 音樂創作室：09:00–12:00、13:00–16:00、17:00–20:00；觀察到 `.time-box2[data-param1]`，但可預約正向流程／最終提交未驗證。
-- 縫紉機01：觀察到 09:00–20:00 的 11 個一小時時段（`.time-box[data-param1]`）；最終確認頁未驗證。
-- 縫紉機02–08、刺繡機01：**各自的時段尚未觀察**；舊模板一小時資料只是歷史草稿，`slots_verified=false`，前端不呈現。不得沿用01的時段當成其他設備事實。
-- 其餘類別：房號、設備識別、入口 selector、時段與最終確認頁皆 **NOT_VERIFIED**，不得猜測或啟用正式提交。
+- 新增 18 個單位僅提供兩層選單顯示，`live=NOT_VERIFIED`。**不建立 engine room**；不填寫猜測的 slot、flow、selector 或最後確認文字。
+- 新單位選擇後沒有時段；GUI「啟動」停用；GUI bridge 即使有手動時段與 ack 仍拒絕 `NOT_VERIFIED`；CLI 只能接受真正已設定的 engine room。
+- 本輪所有 `slot_groups=[]`；不足以確認任何新單位的時段或可選狀態。舊 P03 實機成功及音樂／縫紉機01時段證據不受修改。
+- `categories[].room_keys` = 現有完整 engine profile；`categories[].catalog_units` = 只有辨識名稱的非預約條目。未來核實一個單位，要從 catalog 移除該鍵並建立對應 profile，避免重複。
+- `NOT_VERIFIED` 的正式提交仍 fail-closed，`--ack-room-unverified` 不得解鎖。登入、CAPTCHA、金鑰庫、排程不變。
 
-## 使用方式
+## 待補與驗證
 
-Mac（已 `git pull`、安裝 `zendriver` 的本機專案目錄）：
+1. 討論室、親子直播室單位與各類別清單是否完整。
+2. 各單位獨立入口 DOM、時段長度／可用態／選取行為及最後確認頁比對。
+3. 各自單筆實機成功證據，確認前不得標 LIVE_VERIFIED。
+4. Windows／Mac GUI、登入／人工驗證碼／排程／二時段及防重複提交驗收。
+5. GitHub 修改只做靜態檢查；完整 unittest、GUI、整合與假瀏覽器 **NOT_RUN**。
 
-```bash
-python3 src/ncl_openlab_inventory.py --guided
-```
+Mac 唯讀盤點：`cd ~/ncl-openlab && .venv/bin/python src/ncl_openlab_inventory.py --guided`。
 
-依序顯示 12 個線上候選類別；**使用者手動登入、手動切換類別／日期頁，按 Enter** 擷取目前可見 DOM。輸入 `s` 略過、`q` 結束。無 click、refresh、預約 API 或提交。匿名報告輸出至 `ncl_reports/ncl_inventory_*.json`，包含 `operator_category`（僅人工標籤，`OPERATOR_SELECTED_NOT_VERIFIED`）、房間方塊名稱、時段 selector、時長及草稿。私人資料／含帳號或驗證碼的畫面勿上傳公開 GitHub。
-
-## 未完成實機證據（逐個類別核實）
-
-1. 九個未建立單位的候選類別：完整房號／設備清單與可否線上預約。
-2. 所有未驗證單位：入口實際 `data-zh`，房間 tile 選擇器、唯一性／相鄰單位對照、時段清單和時長；不可假設都是一小時。
-3. 最後確認頁的房間／日期／時段比對文字與單次送出結果；每單位各自取得證據後才能從 `NOT_VERIFIED` 更新。
-4. Mac、Windows 介面切換、人工 CAPTCHA／登入 Session、排程、二時段與單次提交的實機回歸。P03 既有實機成功紀錄不因新增分類而改寫。
-5. 目前 GitHub-only 修改無可執行的本機 Python／Chromium：完整 unittest、整合、假瀏覽器及 Windows/macOS GUI 結果一律仍為 **NOT_RUN**，不可宣稱 PASS。
-
-安全設計：`ncl_openlab_rooms.json` 為唯一清單來源；前端兩層類別→單位，後端沿用同一個 profile 驅動引擎；GUI 與 CLI 的 `--auto-submit` 對 `NOT_VERIFIED` 一律拒絕，舊 `--ack-room-unverified` 也不能解鎖。未修改登入、CAPTCHA、憑證庫、Session 監控、排程、單次提交守衛；不修改 `main`，不使用 Docker 或 GitHub Actions。
+僅修改 `feat/ncl-openlab-booking`；不更動 main、Docker 或 GitHub Actions。

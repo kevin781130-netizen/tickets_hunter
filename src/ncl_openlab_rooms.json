@@ -280,14 +280,30 @@
       "label": "團練室",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "rehearsal_room",
+          "label": "團練室 2 ~ 8 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "star_studio",
       "label": "星際直播攝影棚",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "star_studio_room",
+          "label": "星際直播攝影棚 2 ~ 5 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "family_studio",
@@ -336,42 +352,150 @@
       "room_keys": [
         "p03"
       ],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "p01",
+          "label": "P01 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "p02",
+          "label": "P02 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "anime_pc",
       "label": "動漫創作坊電腦",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "an01",
+          "label": "AN01 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "electric_studio",
-      "label": "電神工作室",
+      "label": "雷神工作室",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "laser",
+          "label": "雷雕機 LASER 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "copy_scan_pc",
       "label": "影印掃描用電腦",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "scan01",
+          "label": "SCAN01 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "craft_pc",
       "label": "創藝手作坊電腦",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "diy01",
+          "label": "DIY01 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "digital_pc",
       "label": "數位科技實作區電腦",
       "booking_mode": "ONLINE_CANDIDATE",
       "room_keys": [],
-      "evidence": "USER_SCREENSHOT_CATEGORY_ONLY"
+      "evidence": "USER_GUIDED_INVENTORY_20261104_OPERATOR_SELECTED_NOT_VERIFIED",
+      "catalog_units": [
+        {
+          "key": "it01",
+          "label": "IT01 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it02",
+          "label": "IT02 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it03",
+          "label": "IT03 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it04",
+          "label": "IT04 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it05",
+          "label": "IT05 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it06",
+          "label": "IT06 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it07",
+          "label": "IT07 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it08",
+          "label": "IT08 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it09",
+          "label": "IT09 3D Scanner 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        },
+        {
+          "key": "it10",
+          "label": "IT10 1 人",
+          "live": "NOT_VERIFIED",
+          "source": "ncl_reports/ncl_inventory_20261104_180300.json"
+        }
+      ]
     },
     {
       "key": "language",

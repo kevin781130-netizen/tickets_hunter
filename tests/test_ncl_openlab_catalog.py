@@ -36,16 +36,45 @@ class FullCenterCatalogTests(unittest.TestCase):
         mapped = [key for c in registry.categories for key in c.room_keys]
         self.assertEqual(len(mapped), 11)
         self.assertEqual(set(mapped), set(registry.keys))
+        observed = [u for c in registry.categories for u in c.catalog_units]
+        self.assertEqual(len(observed), 18)
+        self.assertEqual(len({u.key for u in observed}), 18)
+        self.assertTrue(all(u.live == "NOT_VERIFIED" for u in observed))
+        self.assertEqual(len(picker.ROOM_CHOICES), 29)
         self.assertEqual(picker.room_keys_for_category("music"), ("music",))
-        self.assertEqual(picker.room_keys_for_category("personal_stream"), ("p03",))
+        self.assertEqual(picker.room_keys_for_category("personal_stream"),
+                         ("p03", "p01", "p02"))
         self.assertEqual(len(picker.room_keys_for_category("sewing")), 9)
         self.assertEqual(picker.category_for_room("sewing08"), "sewing")
         self.assertEqual(picker.category_for_room("embroidery01"), "sewing")
 
-    def test_unknown_room_categories_do_not_create_fake_units(self):
-        self.assertEqual(picker.room_keys_for_category("rehearsal"), ())
-        self.assertEqual(picker.room_keys_for_category("anime_pc"), ())
-        self.assertIn("NOT_VERIFIED", picker.category_notice("rehearsal"))
+    def test_guided_inventory_units_visible_but_not_bookable(self):
+        examples = {
+            "rehearsal": ("rehearsal_room",),
+            "star_studio": ("star_studio_room",),
+            "anime_pc": ("an01",),
+            "electric_studio": ("laser",),
+            "copy_scan_pc": ("scan01",),
+            "craft_pc": ("diy01",),
+            "digital_pc": tuple(f"it{i:02d}" for i in range(1, 11)),
+        }
+        for category, keys in examples.items():
+            with self.subTest(category=category):
+                self.assertEqual(picker.room_keys_for_category(category), keys)
+                self.assertIn("NOT_VERIFIED", picker.category_notice(category))
+                for key in keys:
+                    self.assertEqual(picker.category_for_room(key), category)
+                    self.assertEqual(picker.available_slots(key), ())
+                    self.assertEqual(picker.selectable_slots(key), ())
+                    self.assertFalse(picker.room_is_verified(key))
+                    with self.assertRaisesRegex(ValueError, "NOT_VERIFIED"):
+                        picker.build_booking_args(day=date(2026, 11, 12), room=key,
+                                                  slots=["13:00-14:00"], auto_submit=True,
+                                                  ack_unverified=True)
+        self.assertEqual(picker.room_keys_for_category("discussion"), ())
+        self.assertEqual(picker.room_keys_for_category("family_studio"), ())
+        self.assertEqual(picker.ROOM_CHOICES["it09"], "IT09 3D Scanner 1 人")
+        self.assertEqual(picker.CATEGORY_CHOICES["electric_studio"], "雷神工作室")
         with self.assertRaises(ValueError):
             picker.room_keys_for_category("nonexistent")
 
@@ -98,6 +127,12 @@ class FullCenterCatalogTests(unittest.TestCase):
             lambda d: d["categories"][0]["room_keys"].append("music"),
             lambda d: d["categories"][7]["room_keys"].append("music"),
             lambda d: d["categories"].pop(7),
+            lambda d: d["categories"][1]["catalog_units"][0].update(live="LIVE_VERIFIED"),
+            lambda d: d["categories"][1]["catalog_units"][0].update(slots={"kind": "hourly", "start": 9, "end": 20}),
+            lambda d: d["categories"][1]["catalog_units"][0].update(key="p03"),
+            lambda d: d["categories"][1]["catalog_units"][0].update(key="it01"),
+            lambda d: d["categories"][5].update(catalog_units=[{"key": "new", "label": "new",
+                                                                 "live": "NOT_VERIFIED", "source": "test"}]),
         ):
             with self.subTest(edit=edit):
                 config = copy.deepcopy(RAW)
