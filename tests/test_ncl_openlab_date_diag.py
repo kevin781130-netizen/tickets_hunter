@@ -21,6 +21,8 @@ def data():
         "expected_date": "11/11", "iframe_count": 0,
         "date_grid_total": 7,
         "date_match_count": 1, "room_grid_total": 3,
+        "room_class_counts": {"space-box1": 1, "space-box2": 1, "space-box3": 1},
+        "room_code_counts": {"P01": 1, "P02": 1, "P03": 1},
         "p03_match_count": 1,
         "date_flags": [{
             "class_flags": ["book"], "parent_class_flags": [],
@@ -88,6 +90,8 @@ class MultiTabDiagnosticsTests(unittest.TestCase):
         landing.update({
             "iframe_count": 0, "date_grid_total": 0, "date_match_count": 0,
             "date_flags": [], "room_grid_total": 0, "p03_match_count": 0,
+            "room_class_counts": {"space-box1": 0, "space-box2": 0, "space-box3": 0},
+            "room_code_counts": {"P01": 0, "P02": 0, "P03": 0},
             "p03_flags": [],
         })
         outside = SimpleNamespace(
@@ -137,6 +141,24 @@ class MultiTabDiagnosticsTests(unittest.TestCase):
         self.assertFalse(result["date_grid_detected"])
         self.assertEqual(result["pages"][0]["status"], "READ_FAILED")
         self.assertNotIn("private-value", str(result))
+
+    def test_room_candidates_are_only_allowlisted_css_classes_and_codes(self):
+        result = validate_diagnostic(data(), DAY)
+        self.assertEqual(result["room_class_counts"]["space-box3"], 1)
+        self.assertEqual(result["room_code_counts"]["P03"], 1)
+        js = diagnostic_script(DAY)
+        self.assertIn('".space-box1, .space-box2, .space-box3"', js)
+        self.assertIn('roomCodes.map(code', js)
+
+    def test_invalid_room_class_counts_fail_closed(self):
+        item = data()
+        item["room_class_counts"]["space-box3"] = "private-payload"
+        with self.assertRaises(ValueError):
+            validate_diagnostic(item, DAY)
+        item = data()
+        item["room_code_counts"]["P04"] = 1
+        with self.assertRaises(ValueError):
+            validate_diagnostic(item, DAY)
 
     def test_iframe_count_is_only_allowlisted_number(self):
         info = data()
