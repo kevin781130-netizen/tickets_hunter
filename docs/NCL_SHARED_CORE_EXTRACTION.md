@@ -68,3 +68,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\verify_shared_core.ps1
   **181**，尚待 Mac 執行結果確認。
 - 原本 Windows GUI 與 Mac 離線測試流程不變；
   `main` 與固定 RC 的 SHA 沒有修改。
+
+## 第三刀｜主引擎被動路由
+
+- 在 `src/nodriver_tixcraft.py` 以 `urllib.parse.urlsplit(url).hostname`
+  精確辨識 `spms.ncl.edu.tw`，只呼叫 `nodriver_ncl_main`。
+- 國圖條件分支以 `continue` 結束，置於主引擎排程刷新與通用
+  Cloudflare 動作之前，避免一般售票流程誤操作國圖預約網站。
+- **主引擎完全不呼叫 `nodriver_ncl_booking`，不得透過設定值自動送出。**
+  原本 `ncl_openlab_autobook.py` 仍是唯一已實機驗證的啟動入口。
+- 新增 4 項靜態路由回歸測試與主引擎語法 Gate。
+- macOS 前一版 181 項離線測試已由使用者確認 PASS；
+  本刀完成後預期 185 項，**待 Mac 執行確認**。
+
+`main` 和固定的 `release/ncl-openlab-rc-20261104` 不修改。
