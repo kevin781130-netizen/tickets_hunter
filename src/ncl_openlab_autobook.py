@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from ncl_openlab_guard import NCL_HOST, ROOM, VALID_SLOTS
 from ncl_openlab_probe import NCL_URL, TAIPEI_TZ
-from ncl_openlab_slots import parse_slot_priority
+from ncl_openlab_slots import parse_slot_priority, ordered_slot_fallback
 from reservation_common import (
     release_datetime as shared_release_datetime,
     seconds_until as shared_seconds_until,
@@ -379,7 +379,7 @@ async def attempt_stage(tab, phase, day, slot, attempts=6, mode="music"):
     return code
 
 
-async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fast_probe=False):
+async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fast_probe=False, selected_log=None):
     """One booking only. Never attempt another when this result is uncertain."""
     # Choose date and room once; stop on any ambiguous or disabled selector.
     for phase in ("date", "room"):
@@ -401,6 +401,8 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
             return "BLOCKED_" + code
     if chosen_slot is None:
         return "NO_BOOKABLE_UI_SLOT"
+    if selected_log is not None:
+        selected_log.append(chosen_slot)
 
     code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8, mode=mode)
     print("next: " + code)
@@ -477,7 +479,8 @@ async def wait_until_release(tab, day, *, mode, accept_terms,
 
 async def book_with_bounded_retries(
         tab, day, priorities, *, auto_submit, mode, accept_terms,
-        retry_interval=RETRY_INTERVAL_SECONDS, retry_window=RETRY_WINDOW_SECONDS):
+        retry_interval=RETRY_INTERVAL_SECONDS, retry_window=RETRY_WINDOW_SECONDS,
+        selected_log=None):
     """Retry only BEFORE reaching checkout; never repeat a final reservation.
 
     Poll cadence counts only page refreshes; no rapid background API calls.
@@ -490,9 +493,11 @@ async def book_with_bounded_retries(
     attempt = 0
     while True:
         attempt += 1
+        selected_extra = ({"selected_log": selected_log}
+                          if selected_log is not None else {})
         outcome = await book_one_target(
             tab, day, priorities, auto_submit=auto_submit,
-            mode=mode, fast_probe=True)
+            mode=mode, fast_probe=True, **selected_extra)
         if outcome not in RETRYABLE_BEFORE_SUBMIT:
             return outcome
         now = loop.time()
@@ -509,10 +514,17 @@ async def book_with_bounded_retries(
 
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    mode="music", accept_terms=False, reserve_two=False,
+                   fallback_any_slot=False,
                    retry_interval=RETRY_INTERVAL_SECONDS,
                    retry_window=RETRY_WINDOW_SECONDS):
     import zendriver as uc
 
+    if fallback_any_slot and not auto_submit:
+        raise ValueError("fallback requires explicit booking consent")
+    allowed = VALID_SLOTS if mode == "music" else P03_SLOTS
+    if fallback_any_slot and (mode not in ROOM_MODES or
+                               any(slot not in allowed for slot in priorities)):
+        raise ValueError("invalid fallback target")
     browser = await uc.start(headless=False)
     try:
         tab = await browser.get(NCL_URL)
@@ -532,35 +544,57 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                 return status
 
         if reserve_two:
-            # Sequential 2 bookings, not a polling loop. Do not move on until
-            # the previous submission is verified on the real success screen.
+            # Two separate official bookings: do not repeat any confirmed time
+            # and NEVER try booking #2 until #1 is confirmed on the success page.
             if mode not in ROOM_MODES or len(priorities) != 2 or not auto_submit:
                 return "INVALID_TWO_BOOKING_CONFIGURATION"
-            for index, slot in enumerate(priorities):
+            confirmed_slots = []
+            for index, desired in enumerate(priorities):
                 if index > 0:
                     tab = await tab.get(NCL_URL)
                     status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
                     if status != "GRID_READY":
                         return "SECOND_ENTRY_BLOCKED_" + str(status)
+                candidates = (ordered_slot_fallback(
+                    priorities, allowed, target_index=index,
+                    confirmed=confirmed_slots) if fallback_any_slot
+                    else (desired,))
+                if not candidates:
+                    return ("SECOND_NO_UNTRIED_SLOT" if index
+                            else "FIRST_NO_UNTRIED_SLOT")
+                chosen = []
+                details = {"selected_log": chosen} if fallback_any_slot else {}
                 outcome = (await book_one_target(
-                    tab, day, (slot,), auto_submit=True, mode=mode)
+                    tab, day, candidates, auto_submit=True, mode=mode, **details)
                     if now_mode else await book_with_bounded_retries(
-                        tab, day, (slot,), auto_submit=True, mode=mode,
+                        tab, day, candidates, auto_submit=True, mode=mode,
                         accept_terms=accept_terms,
                         retry_interval=retry_interval,
-                        retry_window=retry_window))
-                print(f"booking {index+1}/2 {slot}: {outcome}")
+                        retry_window=retry_window, **details))
+                actual = chosen[-1] if chosen else "UNKNOWN"
+                print(f"booking {index+1}/2 requested={desired} "
+                      f"selected={actual}: {outcome}")
                 if outcome != "SUCCESS_PAGE_MATCHED":
                     return ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_"
                             if index == 0 else "SECOND_NOT_CONFIRMED_") + outcome
+                if fallback_any_slot:
+                    if not chosen or actual in confirmed_slots:
+                        return "CONFIRMED_SLOT_ID_UNKNOWN_STOP"
+                    confirmed_slots.append(actual)
             return "TWO_BOOKINGS_CONFIRMED"
+        candidates = (ordered_slot_fallback(priorities, allowed)
+                      if fallback_any_slot else priorities)
+        if fallback_any_slot:
+            print("自動改選已啟用：僅限相同日期及房間；"
+                  "先嘗試偏好時段，再依時間順序選擇其他時段。")
         if now_mode:
-            return await book_one_target(tab, day, priorities,
+            return await book_one_target(tab, day, candidates,
                                          auto_submit=auto_submit, mode=mode)
         return await book_with_bounded_retries(
-            tab, day, priorities, auto_submit=auto_submit, mode=mode,
+            tab, day, candidates, auto_submit=auto_submit, mode=mode,
             accept_terms=accept_terms,
-            retry_interval=retry_interval, retry_window=retry_window)
+            retry_interval=retry_interval,
+            retry_window=retry_window)
     finally:
         # The actual reservation result stays visible for user inspection.
         # Only the user closes Chrome. Do not call browser.stop() or ask for
@@ -587,11 +621,15 @@ def main():
                         help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
     parser.add_argument("--reserve-two", action="store_true",
                         help="複選兩個時段依序預約兩次（music 或 P03），前一筆未確認成功就停止")
+    parser.add_argument("--fallback-any-slot", action="store_true",
+                        help="偏好時段不可用時，嘗試同日同房間的其他時段（需 --auto-submit）")
     parser.add_argument("--retry-interval", type=int, default=RETRY_INTERVAL_SECONDS,
                         help="午夜後未開放時刷新間隔（3–30秒，預設3秒）")
     parser.add_argument("--retry-window", type=int, default=RETRY_WINDOW_SECONDS,
                         help="午夜後最多重試秒數（0–180秒，預設90秒）")
     args = parser.parse_args()
+    if args.fallback_any_slot and not args.auto_submit:
+        parser.error("--fallback-any-slot 需要明確指定 --auto-submit")
     if not (3 <= args.retry_interval <= 30 and 0 <= args.retry_window <= 180):
         parser.error("重試間隔須為3–30秒，重試時間須為0–180秒")
     if args.room == "p03":
@@ -627,6 +665,7 @@ def main():
                                   now_mode=args.now, mode=args.room,
                                   accept_terms=args.accept_terms,
                                   reserve_two=args.reserve_two,
+                                  fallback_any_slot=args.fallback_any_slot,
                                   retry_interval=args.retry_interval,
                                   retry_window=args.retry_window))
     print(json.dumps({"result": status}, ensure_ascii=False))
