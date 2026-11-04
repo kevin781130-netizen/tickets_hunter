@@ -30,13 +30,26 @@ class P03ModeTests(unittest.TestCase):
         self.assertIn('".time-box[data-param1]" : ".time-box2[data-param1]"', js)
         self.assertIn('"13:00-14:00"', js)
 
-    def test_room_prefix_exact_p03_not_neighbor_room(self):
+    def test_p03_room_uses_actual_exact_child_data_attributes(self):
+        """Live 11/04 markup: #boxspace2.space-box1.selected > span.space-num2."""
         js = app.action_script("room", DAY, SLOT, "p03")
-        self.assertIn(r"/^P03(?:\s|$)/", js)
-        self.assertIn('".space-box1, .space-box2, .space-box3"', js)
+        self.assertIn('from(".space-box1")', js)
+        self.assertIn('span.space-num2[data-en="P03"][data-zh="P03"]', js)
+        self.assertIn('cleanText(label) === "P03"', js)
+        self.assertIn("const p03Label = (el) => exactOne(", js)
+        self.assertIn('const roomTile = () => exactOne(', js)
         self.assertIn('task.mode === "p03"', js)
+        # Other room tiles, parent text, and arbitrary page text cannot match.
+        self.assertNotIn(r'/^P03(?:\s|$)/', js)
+        self.assertNotIn('".space-box1, .space-box2, .space-box3"', js)
         self.assertNotIn('querySelectorAll("*")', js)
         self.assertNotIn('task.roomId', js)
+
+    def test_p03_already_selected_room_does_not_click_again(self):
+        js = app.action_script("room", DAY, SLOT, "p03")
+        self.assertIn('if (chosen(tile)) return result("ALREADY_SELECTED")', js)
+        self.assertIn('if (!chosen(dateTile())) return result("DATE_NOT_SELECTED")', js)
+        self.assertIn('if (!tile) return result("ROOM_NOT_UNIQUE")', js)
 
     def test_p03_uses_room_specific_final_confirmation(self):
         js = app.action_script("submit", DAY, SLOT, "p03")
