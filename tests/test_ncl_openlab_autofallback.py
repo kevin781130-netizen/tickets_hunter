@@ -197,6 +197,71 @@ class RealBackendRoutingTests(unittest.TestCase):
         self.assertIn(("next", "12:00-13:00"), calls)
         self.assertNotIn(("next", "13:00-14:00"), calls)
 
+    def test_p03_delayed_book_class_is_accepted_after_six_readonly_checks(self):
+        stages, verification = [], []
+        async def stage(tab, phase, day, slot, attempts=6, mode="music"):
+            stages.append((phase, slot))
+            return "CLICKED"
+        async def verify(tab, phase, day, slot, mode="music"):
+            self.assertEqual(phase, "verify-slot")
+            verification.append(slot)
+            return ("SLOT_NOT_SELECTED" if len(verification) <= 5
+                    else "ALREADY_SELECTED")
+        async def nap(_duration):
+            return None
+        chosen = []
+        with (patch.object(app, "attempt_stage", stage),
+              patch.object(app, "read_action", verify),
+              patch.object(app.asyncio, "sleep", nap)):
+            result = asyncio.run(app.book_one_target(
+                object(), DAY, ("17:00-18:00",),
+                auto_submit=False, mode="p03", selected_log=chosen))
+        self.assertEqual(result, "PREVIEW_STOPPED_BEFORE_SUBMIT")
+        self.assertEqual(len(verification), 6)
+        self.assertEqual(chosen, ["17:00-18:00"])
+        self.assertIn(("next", "17:00-18:00"), stages)
+        self.assertEqual([p for p, _ in stages].count("slot"), 1)
+
+    def test_p03_never_advances_when_twelve_readonly_checks_fail(self):
+        stages, verification = [], []
+        async def stage(tab, phase, day, slot, attempts=6, mode="music"):
+            stages.append((phase, slot))
+            return "CLICKED"
+        async def verify(tab, phase, day, slot, mode="music"):
+            verification.append(slot)
+            return "SLOT_NOT_SELECTED"
+        async def nap(_duration):
+            return None
+        chosen = []
+        with (patch.object(app, "attempt_stage", stage),
+              patch.object(app, "read_action", verify),
+              patch.object(app.asyncio, "sleep", nap)):
+            result = asyncio.run(app.book_one_target(
+                object(), DAY, ("17:00-18:00",),
+                auto_submit=False, mode="p03", selected_log=chosen))
+        self.assertEqual(result, "NO_BOOKABLE_UI_SLOT")
+        self.assertEqual(len(verification), 12)
+        self.assertEqual(chosen, [])
+        self.assertNotIn("next", [phase for phase, _ in stages])
+
+    def test_p03_context_lost_blocks_before_next(self):
+        stages = []
+        async def stage(tab, phase, day, slot, attempts=6, mode="music"):
+            stages.append((phase, slot))
+            return "CLICKED"
+        async def verify(tab, phase, day, slot, mode="music"):
+            return "CONTEXT_NOT_SELECTED"
+        async def nap(_duration):
+            return None
+        with (patch.object(app, "attempt_stage", stage),
+              patch.object(app, "read_action", verify),
+              patch.object(app.asyncio, "sleep", nap)):
+            result = asyncio.run(app.book_one_target(
+                object(), DAY, ("17:00-18:00",),
+                auto_submit=False, mode="p03"))
+        self.assertEqual(result, "BLOCKED_CONTEXT_NOT_SELECTED")
+        self.assertNotIn("next", [phase for phase, _ in stages])
+
     def test_slot_verification_is_read_only(self):
         script = app.action_script("verify-slot", DAY, "13:00-14:00", "p03")
         self.assertIn('task.phase === "verify-slot"', script)
