@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""NCL OPEN LAB adapter for Tickets Hunter (opt-in, NOT router-registered).
+"""NCL OPEN LAB adapter for Tickets Hunter (passive router registration).
 
 The existing NCL one-shot booking flow remains the production entry point.
-This module introduces a platform interface without altering the URL router.
+The URL router recognizes the exact official NCL host and calls the passive
+nodriver_ncl_main only. It must NEVER call nodriver_ncl_booking implicitly.
 Only an explicit call to nodriver_ncl_booking with auto_submit=True can
 reach a final reservation; nodriver_ncl_main is strictly passive.
 """
@@ -19,8 +20,8 @@ __all__ = ["nodriver_ncl_main", "nodriver_ncl_booking"]
 async def nodriver_ncl_main(tab, url, config_dict):
     """Passive router-compatible entry point; does not navigate or book.
 
-    Do not route this from nodriver_tixcraft until duplicate-submit safety
-    and explicit manual authorization are implemented and tested.
+    Automatic router dispatch is always passive; one-shot submission requires
+    a separate, explicit caller and cannot be authorized by a URL alone.
     """
     if urlsplit(url).hostname != NCL_HOST:
         return "NCL_HOST_NOT_MATCHED"
