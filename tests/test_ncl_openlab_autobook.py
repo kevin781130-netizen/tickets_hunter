@@ -19,8 +19,11 @@ SLOT = "09:00-12:00"
 
 class AutoBookTests(unittest.TestCase):
     def test_all_steps_include_real_ui_selection_and_submit(self):
-        self.assertEqual(PHASES, ("date", "room", "slot", "next",
-                                  "submit", "success"))
+        self.assertEqual(PHASES, ("date", "room", "slot", "verify-slot",
+                                  "next", "submit", "success"))
+        # The P03 selection verification must remain read-only.
+        verify = action_script("verify-slot", DAY, SLOT, "music")
+        self.assertIn('task.phase === "verify-slot"', verify)
 
     def test_music_room_uses_true_timebox2(self):
         js = action_script("slot", DAY, SLOT)
