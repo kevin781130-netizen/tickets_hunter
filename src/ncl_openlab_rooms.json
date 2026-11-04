@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "_comment": "NCL OPEN LAB 房型設定。新增房型優先只改這個檔案；流程(flow)代表DOM操作模型，同流程的房型共用同一份引擎與測試。",
+  "flows": {
+    "block_slot": {
+      "description": "多小時區塊時段：.time-box2；點選前必須帶 book class，選取後以 selected 表示。",
+      "slot_selector": ".time-box2[data-param1]",
+      "slot_requires_book_class": true,
+      "book_class_marks_selected": false
+    },
+    "hourly_slot": {
+      "description": "整點一小時時段：.time-box；未選取時可直接點選，選取後才出現 book class。",
+      "slot_selector": ".time-box[data-param1]",
+      "slot_requires_book_class": false,
+      "book_class_marks_selected": true
+    }
+  },
+  "rooms": {
+    "music": {
+      "label": "音樂創作室",
+      "ui_label": "音樂創作室（3 小時）",
+      "entry_label": "音樂創作室",
+      "flow": "block_slot",
+      "tile_match": {"kind": "includes", "value": "音樂創作室"},
+      "summary_match": {"text_all": ["音樂創作室"], "regex_all": []},
+      "sample_tile_label": "音樂創作室",
+      "slots": {"kind": "list", "values": ["09:00-12:00", "13:00-16:00", "17:00-20:00"]},
+      "default_all_slots": true,
+      "single_slot_option": false,
+      "submit_requires_ack": false,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "已有 time-box2 的真實 DOM 與禁用態；音樂創作室正向可預約與最終「預約」按鈕尚無實機成交證據。",
+        "source": "docs/ncl_openlab_probe.md 第八刀、第十二刀"
+      }
+    },
+    "p03": {
+      "label": "個人直播室 P03",
+      "ui_label": "P03 個人直播室（1 小時）",
+      "entry_label": "個人直播室",
+      "flow": "hourly_slot",
+      "tile_match": {"kind": "regex", "value": "^P03(?:\\s|$)"},
+      "summary_match": {"text_all": ["個人直播室"], "regex_all": ["\\bP03\\b"]},
+      "sample_tile_label": "P03 個人直播室",
+      "slots": {"kind": "hourly", "start": 9, "end": 20},
+      "default_all_slots": false,
+      "single_slot_option": true,
+      "submit_requires_ack": false,
+      "evidence": {
+        "live": "LIVE_VERIFIED",
+        "live_notes": "單筆（日期、房號、時段、最後確認）實機成功並出現 SUCCESS_PAGE_MATCHED。",
+        "source": "docs/NCL_RC_CLOSEOUT.md"
+      }
+    }
+  }
+}

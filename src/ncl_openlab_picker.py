@@ -215,7 +215,7 @@ class BookingPicker(tk.Tk):
         for widget in self.slot_frame.winfo_children():
             widget.destroy()
         choices = available_slots(self.room.get())
-        columns = 2 if self.room.get() == "p03" else 3
+        columns = 2 if len(choices) > 4 else 3
         for col in range(columns):
             self.slot_frame.columnconfigure(col, weight=1, uniform="slot")
         for index, slot in enumerate(choices):

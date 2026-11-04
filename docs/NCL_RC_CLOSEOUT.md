@@ -47,6 +47,12 @@
 「立即預約警示」及兩項回歸測試，**尚待本機最後重跑**。
 請勿把 mock 中的 `TWO_BOOKINGS_CONFIRMED` 視為真正已訂房。
 
+## 多房型引擎
+
+房型差異已集中到 `src/ncl_openlab_rooms.json`，詳見
+[NCL_MULTI_ROOM.md](NCL_MULTI_ROOM.md)：支援矩陣、新增房型流程、
+`--dry-run`／報告／截圖，以及尚待實機驗證的項目。P03 實機驗證範圍不變。
+
 ## 一次性本機離線 Gate
 
 在專案根目錄 PowerShell 執行：

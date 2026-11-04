@@ -2,19 +2,19 @@
 """Pure validation / CLI bridge for the NCL booking GUI (no UI side effects)."""
 from datetime import date, datetime, timedelta, timezone
 
-from ncl_openlab_guard import VALID_SLOTS
-from ncl_openlab_autobook import P03_SLOTS
+from ncl_openlab_rooms import get_registry
 
-ROOM_CHOICES = {"music": "音樂創作室（3 小時）", "p03": "P03 個人直播室（1 小時）"}
+# Room choices and slots come from ncl_openlab_rooms.json, so a room added to
+# the config appears in the GUI without any code change.
+ROOM_CHOICES = {key: profile.ui_label for key, profile in get_registry().rooms.items()}
 TAIPEI = timezone(timedelta(hours=8))
 
 
 def available_slots(room):
-    if room == "music":
-        return VALID_SLOTS
-    if room == "p03":
-        return P03_SLOTS
-    raise ValueError("不支援的空間")
+    profile = get_registry().rooms.get(room)
+    if profile is None:
+        raise ValueError("不支援的空間")
+    return profile.slots
 
 
 def release_datetime(day):
@@ -44,6 +44,9 @@ def build_booking_args(*, day, room, slots, immediate=False,
         raise ValueError("時段與房間不符")
     if not auto_submit:
         raise ValueError("請先勾選授權程式實際送出預約")
+    if get_registry().room(room).submit_requires_ack:
+        # Never acknowledge an unverified room on the user's behalf.
+        raise ValueError("此空間尚未實機驗證，請改用命令列並明確加上 --ack-room-unverified")
 
     args = ["--room", room, "--date", day.isoformat(),
             "--slots", ",".join(selected), "--auto-submit"]

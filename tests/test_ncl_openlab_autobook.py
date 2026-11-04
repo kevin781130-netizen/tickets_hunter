@@ -238,7 +238,8 @@ class AutoBookTests(unittest.TestCase):
         js = module.ENTRY_JS
         self.assertIn('location.pathname === "/NLT/co/multimedia.jsp"', js)
         self.assertIn('".lab-item .lab-name[data-zh]"', js)
-        self.assertIn('mode === "p03" ? "個人直播室" : "音樂創作室"', js)
+        # Room name now comes from the profile (ncl_openlab_rooms.json).
+        self.assertIn('const roomName = __ROOM_ENTRY_LABEL__;', js)
         self.assertIn('el.getAttribute("data-zh") === roomName', js)
         self.assertIn('const tile = labels[0].closest(".lab-item")', js)
         self.assertIn('tile.click();', js)
@@ -268,7 +269,8 @@ class AutoBookTests(unittest.TestCase):
                     module.ensure_date_grid(tab, mode=mode)),
                     "STATUS_ROOM_NOT_UNIQUE")
                 self.assertEqual(len(tab.scripts), 1)
-                self.assertIn('const mode = "' + mode + '";', tab.scripts[0])
+                label = {"music": "音樂創作室", "p03": "個人直播室"}[mode]
+                self.assertIn('const roomName = "' + label + '";', tab.scripts[0])
 
     def test_entry_waits_for_date_grid_after_card_click(self):
         import ncl_openlab_autobook as module

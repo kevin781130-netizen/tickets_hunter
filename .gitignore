@@ -62,3 +62,6 @@ __MACOSX/
 
 # Local NCL OPEN LAB sanitized observation (never commit diagnostic captures)
 /ncl_openlab_evidence.json
+
+# NCL run reports, inventories and screenshots (may contain account details)
+/ncl_reports/

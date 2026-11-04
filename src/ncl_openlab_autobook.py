@@ -1,24 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""One-shot, opt-in NCL music-room or P03 booking through the visible browser UI.
+"""One-shot, opt-in NCL room booking through the visible browser UI.
+
+Generic, data-driven engine: every per-room difference (tile matcher, slot
+list, slot-tile behaviour, confirmation-page wording) lives in
+``ncl_openlab_rooms.json``. Music room and P03 are the first two profiles.
 
 Manual login required. One target date, one room, at most one final submit.
 No API replay, CAPTCHA solving, rapid page refresh or continuous polling.
 """
 import argparse
 import asyncio
+import contextvars
 import json
 from datetime import date, datetime, time, timedelta
 from urllib.parse import urlsplit
 
-from ncl_openlab_guard import NCL_HOST, ROOM, VALID_SLOTS
+from ncl_openlab_guard import NCL_HOST
 from ncl_openlab_probe import NCL_URL, TAIPEI_TZ
-from ncl_openlab_slots import parse_slot_priority
+from ncl_openlab_rooms import get_registry
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
 PHASES = ("date", "room", "slot", "next", "submit", "success")
-P03_SLOTS = tuple(f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 20))
-ROOM_MODES = ("music", "p03")
+_REGISTRY = get_registry()
+ROOM_MODES = _REGISTRY.keys
+DEFAULT_ROOM = "music"
+# Kept for compatibility with the picker GUI and existing callers.
+P03_SLOTS = _REGISTRY.room("p03").slots
+_TRACE = contextvars.ContextVar("ncl_trace", default=None)
+
+
+def _note(label, code):
+    """Print one stage result and record it for the optional run report."""
+    print(f"{label}: {code}")
+    trace = _TRACE.get()
+    if trace is not None:
+        trace.append((label, str(code)))
 ACTION_JS = r"""(() => {
   const task = __TASK__;
   const cleanText = (el) => String(el.innerText || "").replace(/\s+/g, " ").trim();
@@ -38,17 +55,19 @@ ACTION_JS = r"""(() => {
     .filter(visible);
   const dateTile = () => exactOne(from(".date-box")
     .filter(el => cleanText(el).startsWith(task.shortDate)));
+  // Room identity comes from the profile (ncl_openlab_rooms.json), never from
+  // fuzzy guessing: exactly one visible tile must match.
+  const roomMatches = (text) => task.profile.tileKind === "regex"
+    ? new RegExp(task.profile.tileValue).test(text)
+    : text.includes(task.profile.tileValue);
   const roomTile = () => exactOne(from(".space-box1")
-    .filter(el => task.mode === "p03"
-      ? /^P03(?:\s|$)/.test(cleanText(el))
-      : cleanText(el).includes(task.room)));
-  const slotTile = () => exactOne(from(task.mode === "p03"
-    ? ".time-box[data-param1]" : ".time-box2[data-param1]")
+    .filter(el => roomMatches(cleanText(el))));
+  const slotTile = () => exactOne(from(task.profile.slotSelector)
     .filter(el => el.getAttribute("data-param1") === task.slot));
-  // P03 marks the clicked/selected hour with 'book' (observed live HTML).
-  // Music-room tiles use 'selected'; keep these two state contracts separate.
+  // Flows differ: P03-style hourly tiles gain 'book' once selected (observed
+  // live HTML); block tiles use 'selected'. The profile's flow says which.
   const chosen = (el, kind) => el && (el.classList.contains("selected") ||
-    (task.mode === "p03" && kind === "slot" && el.classList.contains("book")));
+    (task.profile.bookMarksSelected && kind === "slot" && el.classList.contains("book")));
   const result = (code) => ({code}); // No page content, identifiers or account data.
   if (location.hostname !== "spms.ncl.edu.tw") return result("WRONG_HOST");
   // Never switch between distinct pages without re-verifying the intended stage.
@@ -73,9 +92,9 @@ ACTION_JS = r"""(() => {
     if (!tile) return result("SLOT_NOT_UNIQUE");
     // Positive UI hint is mandatory, but is NEVER back-end availability proof.
     if (disabled(tile)) return result("SLOT_DISABLED");
-    // A P03 brown .time-box can be chosen before it gains 'book'.
-    // For music-room time-box2 keep the positive 'book' requirement.
-    if (task.mode !== "p03" && !tile.classList.contains("book"))
+    // Hourly tiles can be chosen before they gain 'book'. Block tiles keep the
+    // positive 'book' requirement.
+    if (task.profile.slotRequiresBook && !tile.classList.contains("book"))
       return result("SLOT_NOT_BOOK_CLASS");
     if (chosen(tile, "slot")) return result("ALREADY_SELECTED");
     tile.click(); return result("CLICKED");
@@ -104,9 +123,12 @@ ACTION_JS = r"""(() => {
   }
   // Final confirmation page may no longer have .date-box and .space-box1.
   // Compare all three target facts in the rendered visible page, not form values.
-  const matchingRoomSummary = (display) => task.mode === "p03"
-    ? display.replace(/\s+/g, "").includes("個人直播室") && /\bP03\b/.test(display)
-    : display.replace(/\s+/g, "").includes(task.room);
+  const matchingRoomSummary = (display) => {
+    const squeezed = display.replace(/\s+/g, "");
+    return task.profile.summaryTextAll.every(
+        t => squeezed.includes(String(t).replace(/\s+/g, ""))) &&
+      task.profile.summaryRegexAll.every(p => new RegExp(p).test(display));
+  };
   const summary = () => {
     const display = String(document.body.innerText || "");
     return display.includes(task.fullDate) &&
@@ -148,18 +170,24 @@ ACTION_JS = r"""(() => {
 })()"""
 
 
+def room_profile(mode):
+    """Profile for a configured room key; unknown keys fail closed."""
+    if mode not in ROOM_MODES:
+        raise ValueError("invalid phase or room mode")
+    return _REGISTRY.room(mode)
+
+
 def action_script(phase, day, slot, mode="music"):
     if phase not in PHASES or mode not in ROOM_MODES:
         raise ValueError("invalid phase or room mode")
-    allowed = VALID_SLOTS if mode == "music" else P03_SLOTS
+    profile = room_profile(mode)
     if (not isinstance(day, date) or isinstance(day, datetime)
-            or slot not in allowed):
+            or slot not in profile.slots):
         raise ValueError("invalid slot for requested room")
-    room = ROOM if mode == "music" else "個人直播室"
     data = {"phase": phase, "shortDate": day.strftime("%m/%d"),
             "fullDate": day.strftime("%Y/%m/%d"),
-            "isoDate": day.isoformat(), "room": room,
-            "slot": slot, "mode": mode}
+            "isoDate": day.isoformat(), "room": profile.entry_label,
+            "slot": slot, "mode": mode, "profile": profile.task_profile()}
     return ACTION_JS.replace("__TASK__", json.dumps(data, ensure_ascii=False))
 
 
@@ -173,14 +201,23 @@ RETRYABLE_BEFORE_SUBMIT = frozenset({
 })
 
 
+def parse_room_priorities(mode, raw):
+    """Ordered slot alternatives for any configured room (first = preferred)."""
+    profile = room_profile(mode)
+    if raw is None and profile.default_all_slots:
+        return profile.slots
+    values = tuple(v.strip() for v in raw.split(",")) if isinstance(raw, str) else ()
+    if (not values or len(values) > len(profile.slots) or
+            len(values) != len(set(values)) or
+            any(v not in profile.slots for v in values)):
+        raise ValueError(f"{profile.label} 時段必須是不重複的合法時段："
+                         + ", ".join(profile.slots))
+    return values
+
+
 def parse_p03_priorities(raw):
     """Ordered one-hour P03 alternatives; only one reservation is submitted."""
-    values = tuple(v.strip() for v in raw.split(",")) if isinstance(raw, str) else ()
-    if (not values or len(values) > len(P03_SLOTS) or
-            len(values) != len(set(values)) or
-            any(v not in P03_SLOTS for v in values)):
-        raise ValueError("P03 時段必須是不重複的 09:00-10:00 至 19:00-20:00 整點一小時")
-    return values
+    return parse_room_priorities("p03", raw)
 
 
 def release_time(day):
@@ -201,7 +238,7 @@ def seconds_until_release(day, now=None):
 # One-shot lobby navigation from actual NCL entry markup. Consent is opt-in.
 ENTRY_JS = r"""(() => {
   const action = __ALLOW_AGREE__;
-  const mode = __ROOM_MODE__;
+  const roomName = __ROOM_ENTRY_LABEL__;
   const visible = (el) => {
     const b = el.getBoundingClientRect();
     const style = getComputedStyle(el);
@@ -213,7 +250,6 @@ ENTRY_JS = r"""(() => {
   // Live NCL flow: the multimedia status overview is NOT the booking date grid.
   // Clicking the exact room category opens /NLT/co/media_discussion.jsp (7 dates).
   if (location.pathname === "/NLT/co/multimedia.jsp") {
-    const roomName = mode === "p03" ? "個人直播室" : "音樂創作室";
     const labels = Array.from(document.querySelectorAll(".lab-item .lab-name[data-zh]"))
       .filter(el => visible(el) && el.getAttribute("data-zh") === roomName);
     if (labels.length !== 1) return "STATUS_ROOM_NOT_UNIQUE";
@@ -242,15 +278,21 @@ ENTRY_JS = r"""(() => {
 })()"""
 
 
+def entry_script(mode, accept_terms=False):
+    """Lobby-navigation script for a configured room (exact label, no guessing)."""
+    return (ENTRY_JS
+            .replace("__ALLOW_AGREE__", "true" if accept_terms else "false")
+            .replace("__ROOM_ENTRY_LABEL__",
+                     json.dumps(room_profile(mode).entry_label, ensure_ascii=False)))
+
+
 async def ensure_date_grid(tab, *, accept_terms=False, mode="music"):
     """Navigate visible site UI only, without inventing consent or retrying submit."""
     if mode not in ROOM_MODES:
         return "INVALID_ROOM_MODE"
     if not await at_official_host(tab):
         return "WRONG_HOST"
-    script = (ENTRY_JS
-              .replace("__ALLOW_AGREE__", "true" if accept_terms else "false")
-              .replace("__ROOM_MODE__", json.dumps(mode)))
+    script = entry_script(mode, accept_terms)
     code = "ENTRY_NOT_FOUND_OR_AMBIGUOUS"
     for _ in range(12):
         code = await tab.evaluate(script)
@@ -384,7 +426,7 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
     for phase in ("date", "room"):
         code = await attempt_stage(tab, phase, day, priorities[0],
                                    attempts=2 if fast_probe else 8, mode=mode)
-        print(f"{phase}: {code}")
+        _note(phase, code)
         if code not in ("CLICKED", "ALREADY_SELECTED"):
             return "BLOCKED_" + code
 
@@ -392,7 +434,7 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
     for slot in priorities:
         code = await attempt_stage(tab, "slot", day, slot,
                                    attempts=2 if fast_probe else 8, mode=mode)
-        print(f"slot {slot}: {code}")
+        _note(f"slot {slot}", code)
         if code in ("CLICKED", "ALREADY_SELECTED"):
             chosen_slot = slot
             break
@@ -402,7 +444,7 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
         return "NO_BOOKABLE_UI_SLOT"
 
     code = await attempt_stage(tab, "next", day, chosen_slot, attempts=8, mode=mode)
-    print("next: " + code)
+    _note("next", code)
     if code != "CLICKED":
         return "BLOCKED_" + code
 
@@ -429,7 +471,7 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
     await asyncio.sleep(1.0)
 
     code = await submit_once_with_pointer(tab, day, chosen_slot, mode=mode, attempts=8)
-    print("submit: " + code)
+    _note("submit", code)
     if code != "CLICKED_ONCE":
         return "BLOCKED_" + code
 
@@ -537,61 +579,125 @@ async def wait_until_browser_manually_closed(browser, *, interval=1.0):
         await asyncio.sleep(interval)
 
 
+async def run_dry_run(tab, day, priorities, mode):
+    """Read-only diagnostics of the current page. No reservation control is touched."""
+    from ncl_openlab_diag import diagnose, diagnose_script
+
+    snapshots = {}
+    for slot in priorities:
+        raw = await tab.evaluate(diagnose_script(day, slot, mode))
+        snapshots[slot] = diagnose(raw, mode)
+        _note(f"diagnose {slot}", ",".join(snapshots[slot]["findings"]))
+    return "DRY_RUN_COMPLETE", snapshots
+
+
+async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
+                 accept_terms, reserve_two, retry_interval, retry_window,
+                 dry_run, extras):
+    """The booking state machine itself (unchanged logic, shared by all rooms)."""
+    print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
+    await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
+    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+    if status == "AGREEMENT_REQUIRED":
+        print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
+        await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+        status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
+    if status != "GRID_READY":
+        raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
+    if dry_run:
+        outcome, extras["diagnosis"] = await run_dry_run(tab, day, priorities, mode)
+        return outcome
+    if not now_mode:
+        status = await wait_until_release(
+            tab, day, mode=mode, accept_terms=accept_terms)
+        if status != "GRID_READY":
+            return status
+
+    if reserve_two:
+        # Sequential 2 bookings, not a polling loop. Do not move on until
+        # the previous submission is verified on the real success screen.
+        if mode not in ROOM_MODES or len(priorities) != 2 or not auto_submit:
+            return "INVALID_TWO_BOOKING_CONFIGURATION"
+        for index, slot in enumerate(priorities):
+            if index > 0:
+                tab = await tab.get(NCL_URL)
+                status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+                if status != "GRID_READY":
+                    return "SECOND_ENTRY_BLOCKED_" + str(status)
+            outcome = (await book_one_target(
+                tab, day, (slot,), auto_submit=True, mode=mode)
+                if now_mode else await book_with_bounded_retries(
+                    tab, day, (slot,), auto_submit=True, mode=mode,
+                    accept_terms=accept_terms,
+                    retry_interval=retry_interval,
+                    retry_window=retry_window))
+            print(f"booking {index+1}/2 {slot}: {outcome}")
+            if outcome != "SUCCESS_PAGE_MATCHED":
+                return ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_"
+                        if index == 0 else "SECOND_NOT_CONFIRMED_") + outcome
+        return "TWO_BOOKINGS_CONFIRMED"
+    if now_mode:
+        return await book_one_target(tab, day, priorities,
+                                     auto_submit=auto_submit, mode=mode)
+    return await book_with_bounded_retries(
+        tab, day, priorities, auto_submit=auto_submit, mode=mode,
+        accept_terms=accept_terms,
+        retry_interval=retry_interval, retry_window=retry_window)
+
+
+async def _write_run_report(tab, *, report_dir, screenshot, day, mode,
+                            priorities, outcome, trace, flags, extras):
+    """Best effort. A reporting problem must never alter or repeat a booking."""
+    try:
+        from ncl_openlab_diag import build_report, capture_screenshot, write_report
+        from datetime import datetime as _dt
+
+        stem = "ncl_run_" + _dt.now(TAIPEI_TZ).strftime("%Y%m%d_%H%M%S")
+        shot = None
+        if screenshot and tab is not None:
+            shot = await capture_screenshot(tab, report_dir, stem)
+        report = build_report(day=day, mode=mode, priorities=priorities,
+                              outcome=outcome, trace=trace, flags=flags,
+                              diagnosis=extras.get("diagnosis"), screenshot=shot)
+        path = write_report(report_dir, report, stem=stem)
+        print(f"診斷報告已寫入：{path}")
+    except Exception as exc:
+        print("診斷報告寫入失敗：" + type(exc).__name__)
+
+
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    mode="music", accept_terms=False, reserve_two=False,
                    retry_interval=RETRY_INTERVAL_SECONDS,
-                   retry_window=RETRY_WINDOW_SECONDS):
+                   retry_window=RETRY_WINDOW_SECONDS,
+                   dry_run=False, report_dir=None, screenshot=False):
     import zendriver as uc
 
+    if dry_run and auto_submit:
+        return "INVALID_DRY_RUN_WITH_AUTO_SUBMIT"
     browser = await uc.start(headless=False)
+    trace, extras, tab = [], {}, None
+    token = _TRACE.set(trace)
+    outcome = "ABORTED_BEFORE_RESULT"
     try:
         tab = await browser.get(NCL_URL)
-        print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
-        await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
-        status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
-        if status == "AGREEMENT_REQUIRED":
-            print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
-            await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
-            status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
-        if status != "GRID_READY":
-            raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
-        if not now_mode:
-            status = await wait_until_release(
-                tab, day, mode=mode, accept_terms=accept_terms)
-            if status != "GRID_READY":
-                return status
-
-        if reserve_two:
-            # Sequential 2 bookings, not a polling loop. Do not move on until
-            # the previous submission is verified on the real success screen.
-            if mode not in ROOM_MODES or len(priorities) != 2 or not auto_submit:
-                return "INVALID_TWO_BOOKING_CONFIGURATION"
-            for index, slot in enumerate(priorities):
-                if index > 0:
-                    tab = await tab.get(NCL_URL)
-                    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
-                    if status != "GRID_READY":
-                        return "SECOND_ENTRY_BLOCKED_" + str(status)
-                outcome = (await book_one_target(
-                    tab, day, (slot,), auto_submit=True, mode=mode)
-                    if now_mode else await book_with_bounded_retries(
-                        tab, day, (slot,), auto_submit=True, mode=mode,
-                        accept_terms=accept_terms,
-                        retry_interval=retry_interval,
-                        retry_window=retry_window))
-                print(f"booking {index+1}/2 {slot}: {outcome}")
-                if outcome != "SUCCESS_PAGE_MATCHED":
-                    return ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_"
-                            if index == 0 else "SECOND_NOT_CONFIRMED_") + outcome
-            return "TWO_BOOKINGS_CONFIRMED"
-        if now_mode:
-            return await book_one_target(tab, day, priorities,
-                                         auto_submit=auto_submit, mode=mode)
-        return await book_with_bounded_retries(
-            tab, day, priorities, auto_submit=auto_submit, mode=mode,
-            accept_terms=accept_terms,
-            retry_interval=retry_interval, retry_window=retry_window)
+        outcome = await _drive(
+            tab, day, priorities, auto_submit=auto_submit, now_mode=now_mode,
+            mode=mode, accept_terms=accept_terms, reserve_two=reserve_two,
+            retry_interval=retry_interval, retry_window=retry_window,
+            dry_run=dry_run, extras=extras)
+        return outcome
+    except BaseException as exc:
+        outcome = "EXCEPTION_" + type(exc).__name__
+        raise
     finally:
+        _TRACE.reset(token)
+        if report_dir:
+            await _write_run_report(
+                tab, report_dir=report_dir, screenshot=screenshot, day=day,
+                mode=mode, priorities=priorities, outcome=outcome, trace=trace,
+                flags={"auto_submit": auto_submit, "now": now_mode,
+                       "reserve_two": reserve_two, "dry_run": dry_run},
+                extras=extras)
         # The actual reservation result stays visible for user inspection.
         # Only the user closes Chrome. Do not call browser.stop() or ask for
         # Enter (which previously ended the controller and closed Chromium).
@@ -599,12 +705,13 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
         await wait_until_browser_manually_closed(browser)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="國圖音樂創作室／P03 單次自動預約")
+def build_parser():
+    parser = argparse.ArgumentParser(description="國圖多媒體創意實驗中心單次自動預約（多房型）")
     parser.add_argument("--date", required=True, type=date.fromisoformat,
                         help="目標日期 YYYY-MM-DD（必填）")
-    parser.add_argument("--room", choices=ROOM_MODES, default="music",
-                        help="music 音樂創作室（預設）或 p03 個人直播室測試")
+    parser.add_argument("--room", choices=ROOM_MODES, default=DEFAULT_ROOM,
+                        help="房型代號，定義於 ncl_openlab_rooms.json；"
+                             "music 音樂創作室（預設）、p03 個人直播室")
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--slots", default=None,
                         help="依優先順序指定時段，例如 13:00-16:00,09:00-12:00；P03 可指定一小時備選")
@@ -621,44 +728,82 @@ def main():
                         help="午夜後未開放時刷新間隔（3–30秒，預設3秒）")
     parser.add_argument("--retry-window", type=int, default=RETRY_WINDOW_SECONDS,
                         help="午夜後最多重試秒數（0–180秒，預設90秒）")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="唯讀診斷：登入後只檢查目前頁面的日期／房型／時段狀態，"
+                             "不點任何預約控制項，不可與 --auto-submit 併用")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="只印出解析後的計畫並結束，不開瀏覽器")
+    parser.add_argument("--report-dir", default=None,
+                        help="將去識別化診斷報告(JSON)寫到此資料夾；--dry-run 預設 ncl_reports")
+    parser.add_argument("--screenshot", action="store_true",
+                        help="結束時另存目前頁面截圖（可能含個人資料，僅存本機，需搭配報告）")
+    parser.add_argument("--ack-room-unverified", action="store_true",
+                        help="確認接受此房型尚未實機驗證的風險（新增房型設定要求時才需要）")
+    return parser
+
+
+def resolve_priorities(parser, args):
+    """Validate the slot arguments against the chosen room's profile."""
+    profile = room_profile(args.room)
+    if args.slot is not None and not profile.single_slot_option:
+        parser.error(f"{profile.label}請用 --slots 指定時段")
+    raw = args.slot if args.slot is not None else args.slots
+    if raw is None and not profile.default_all_slots:
+        parser.error(f"{profile.label} 須指定 --slot 或 --slots（"
+                     + ", ".join(profile.slots[:1] + profile.slots[-1:]) + "）")
+    try:
+        return parse_room_priorities(args.room, raw)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
     if not (3 <= args.retry_interval <= 30 and 0 <= args.retry_window <= 180):
         parser.error("重試間隔須為3–30秒，重試時間須為0–180秒")
-    if args.room == "p03":
-        if args.slot is None and args.slots is None:
-            parser.error("P03 須指定 --slot 或 --slots（整點一小時）")
-        try:
-            priorities = ((args.slot,) if args.slot is not None
-                          else parse_p03_priorities(args.slots))
-        except ValueError as exc:
-            parser.error(str(exc))
-        if any(v not in P03_SLOTS for v in priorities):
-            parser.error("P03 必須指定一小時時段")
-    else:
-        if args.slot is not None:
-            parser.error("音樂創作室請用 --slots 指定三小時時段")
-        try:
-            priorities = parse_slot_priority(args.slots)
-        except ValueError as exc:
-            parser.error(str(exc))
+    profile = room_profile(args.room)
+    priorities = resolve_priorities(parser, args)
+    if args.dry_run and args.auto_submit:
+        parser.error("--dry-run 為唯讀診斷，不可與 --auto-submit 併用")
+    if args.dry_run and args.reserve_two:
+        parser.error("--dry-run 不可與 --reserve-two 併用")
+    if args.screenshot and not (args.report_dir or args.dry_run):
+        parser.error("--screenshot 需搭配 --report-dir 或 --dry-run")
+    if args.auto_submit and profile.submit_requires_ack and not args.ack_room_unverified:
+        parser.error(f"{profile.label} 尚未實機驗證，送出前須明確加上 --ack-room-unverified")
     if args.reserve_two:
         if len(priorities) != 2:
             parser.error("--reserve-two 必須指定兩個不同的合法時段（music 或 P03）")
         if not args.auto_submit:
             parser.error("--reserve-two 需要明確指定 --auto-submit")
         print("雙時段模式：每天最多兩段（含已有預約）；第一筆未確認成功不執行第二筆。")
-    room_name = ROOM if args.room == "music" else "個人直播室 P03"
-    print(f"目標：{args.date.isoformat()}｜{room_name}｜優先序：{', '.join(priorities)}")
+    print(f"目標：{args.date.isoformat()}｜{profile.label}｜優先序：{', '.join(priorities)}")
     print("注意：不繞驗證碼、不存帳密、不刷站；只會在此登入階段後操作。")
-    if not args.auto_submit:
+    if profile.live != "LIVE_VERIFIED":
+        print(f"提醒：{profile.label} 尚未實機驗證（NOT_VERIFIED）：{profile.live_notes}")
+    if args.dry_run:
+        print("唯讀診斷模式（--dry-run）：不會點選預約相關控制項，也不會送出。")
+    elif not args.auto_submit:
         print("未指定 --auto-submit，程式只會走到最後確認頁。")
+    if args.plan_only:
+        print(json.dumps({"plan": {
+            "room": args.room, "flow": profile.flow.name, "date": args.date.isoformat(),
+            "slots": list(priorities), "auto_submit": args.auto_submit,
+            "dry_run": args.dry_run, "now": args.now,
+            "release_taipei": release_time(args.date).isoformat(),
+            "live_evidence": profile.live}}, ensure_ascii=False))
+        return
+    report_dir = args.report_dir or ("ncl_reports" if args.dry_run else None)
     status = asyncio.run(autobook(args.date, priorities,
                                   auto_submit=args.auto_submit,
                                   now_mode=args.now, mode=args.room,
                                   accept_terms=args.accept_terms,
                                   reserve_two=args.reserve_two,
                                   retry_interval=args.retry_interval,
-                                  retry_window=args.retry_window))
+                                  retry_window=args.retry_window,
+                                  dry_run=args.dry_run, report_dir=report_dir,
+                                  screenshot=args.screenshot))
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 

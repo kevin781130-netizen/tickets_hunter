@@ -26,13 +26,16 @@ class P03ModeTests(unittest.TestCase):
     def test_p03_uses_only_hourly_time_box(self):
         js = app.action_script("slot", DAY, SLOT, "p03")
         self.assertIn('"mode": "p03"', js)
-        self.assertIn('task.mode === "p03"', js)
-        self.assertIn('".time-box[data-param1]" : ".time-box2[data-param1]"', js)
+        self.assertIn('"slotSelector": ".time-box[data-param1]"', js)
+        self.assertIn('"slotRequiresBook": false', js)
+        self.assertIn('from(task.profile.slotSelector)', js)
+        self.assertNotIn('time-box2', js.split('const task = ')[1].split(';')[0])
         self.assertIn('"13:00-14:00"', js)
 
     def test_room_prefix_exact_p03_not_neighbor_room(self):
         js = app.action_script("room", DAY, SLOT, "p03")
-        self.assertIn(r"/^P03(?:\s|$)/", js)
+        self.assertIn(r'"tileValue": "^P03(?:\\s|$)"', js)
+        self.assertIn('"tileKind": "regex"', js)
         self.assertIn('from(".space-box1")', js)
         self.assertNotIn('querySelectorAll("*")', js)
         self.assertNotIn('task.roomId', js)
@@ -40,7 +43,7 @@ class P03ModeTests(unittest.TestCase):
     def test_p03_uses_room_specific_final_confirmation(self):
         js = app.action_script("submit", DAY, SLOT, "p03")
         self.assertIn('"個人直播室"', js)
-        self.assertIn(r"/\bP03\b/", js)
+        self.assertIn(r'"summaryRegexAll": ["\\bP03\\b"]', js)
         self.assertIn('"2026/11/11"', js)
         self.assertIn('"13:00-14:00"', js)
         self.assertIn('if (!summary()) return result("SUMMARY_MISMATCH")', js)
@@ -50,8 +53,9 @@ class P03ModeTests(unittest.TestCase):
 
     def test_vertical_room_label_whitespace_is_normalized(self):
         js = app.action_script("submit", DAY, SLOT, "p03")
-        self.assertIn('display.replace(/\\s+/g, "").includes("個人直播室")', js)
-        self.assertIn(r"/\bP03\b/", js)
+        self.assertIn('const squeezed = display.replace(/\\s+/g, "")', js)
+        self.assertIn('"summaryTextAll": ["個人直播室"]', js)
+        self.assertIn(r'"summaryRegexAll": ["\\bP03\\b"]', js)
 
     def test_spaced_booking_button_label_is_normalized(self):
         """Live #gobook shows '預 約'; final CTA compares its exact normalized label."""
@@ -91,19 +95,22 @@ class P03ModeTests(unittest.TestCase):
     def test_p03_normal_time_box_can_be_clicked_before_book_class(self):
         js = app.action_script("slot", DAY, SLOT, "p03")
         # Previously P03 stopped at SLOT_NOT_BOOK_CLASS before clicking.
-        self.assertIn('task.mode !== "p03" && !tile.classList.contains("book")', js)
+        self.assertIn('task.profile.slotRequiresBook && !tile.classList.contains("book")', js)
+        self.assertIn('"slotRequiresBook": false', js)
         self.assertIn('if (chosen(tile, "slot")) return result("ALREADY_SELECTED")', js)
         self.assertIn('tile.click(); return result("CLICKED")', js)
 
     def test_p03_book_is_selected_state_for_next_step(self):
         js = app.action_script("next", DAY, SLOT, "p03")
         self.assertIn('kind === "slot" && el.classList.contains("book")', js)
+        self.assertIn('"bookMarksSelected": true', js)
         self.assertIn('!chosen(slotTile(), "slot")', js)
         self.assertIn('button.click(); return result("CLICKED")', js)
 
     def test_music_still_requires_book_class_for_slot(self):
         js = app.action_script("slot", DAY, "13:00-16:00", "music")
-        self.assertIn('task.mode !== "p03" && !tile.classList.contains("book")', js)
+        self.assertIn('task.profile.slotRequiresBook && !tile.classList.contains("book")', js)
+        self.assertIn('"slotRequiresBook": true', js)
         self.assertIn('SLOT_NOT_BOOK_CLASS', js)
 
     def test_p03_disabled_never_allowed(self):

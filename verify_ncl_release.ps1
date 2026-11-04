@@ -22,6 +22,9 @@ $sourceFiles = @(
     'src\ncl_openlab_autobook.py',
     'src\ncl_openlab_picker.py',
     'src\ncl_openlab_picker_model.py',
+    'src\ncl_openlab_rooms.py',
+    'src\ncl_openlab_diag.py',
+    'src\ncl_openlab_inventory.py',
     'src\ncl_browser_lifecycle_smoke.py'
 )
 & $python -m py_compile @sourceFiles
@@ -30,6 +33,10 @@ if ($LASTEXITCODE -ne 0) { throw 'PYTHON_COMPILE_FAILED' }
 Write-Host 'NCL RELEASE CHECK: running offline unit tests...'
 & $python -m unittest discover -s tests -p 'test_ncl_openlab_*.py' -q
 if ($LASTEXITCODE -ne 0) { throw 'NCL_OFFLINE_TESTS_FAILED' }
+
+Write-Host 'NCL RELEASE CHECK: offline report (skipped tests are NOT_VERIFIED, not PASS)...'
+& $python tests\run_ncl_offline_report.py --out-dir ncl_reports
+if ($LASTEXITCODE -ne 0) { throw 'NCL_OFFLINE_REPORT_FAILED' }
 
 Write-Host 'NCL_RELEASE_GATE_PASS'
 Write-Host 'Branch: feat/ncl-openlab-booking. Main unchanged by this script.'
