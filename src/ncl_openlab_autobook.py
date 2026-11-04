@@ -25,6 +25,9 @@ from reservation_browser import wait_until_browser_manually_closed
 PHASES = ("date", "verify-date", "room", "slot", "verify-slot", "next", "submit", "success")
 P03_SLOTS = tuple(f"{hour:02d}:00-{hour + 1:02d}:00" for hour in range(9, 20))
 ROOM_MODES = ("music", "p03")
+# Confirmed official multimedia overview; used for the SECOND booking only.
+# Do not navigate to NCL_URL root after booking #1 (it may show login).
+NCL_MULTIMEDIA_OVERVIEW_URL = "https://spms.ncl.edu.tw/NLT/co/multimedia.jsp"
 ACTION_JS = r"""(() => {
   const task = __TASK__;
   const cleanText = (el) => String(el.innerText || "").replace(/\s+/g, " ").trim();
@@ -572,6 +575,25 @@ async def book_with_bounded_retries(
             return "RETRY_ENTRY_BLOCKED_" + status
 
 
+async def resume_second_booking_grid(tab, *, mode, accept_terms):
+    """Return via the known official multimedia overview, not the login root.
+
+    Only after booking #1 has SUCCESS_PAGE_MATCHED. Same tab/browser profile,
+    no logout, new login, copied cookies, API calls or replay of booking #1.
+    A site-side authentication redirect must fail closed and be reported.
+    """
+    try:
+        tab = await tab.get(NCL_MULTIMEDIA_OVERVIEW_URL)
+        status = await ensure_date_grid(
+            tab, accept_terms=accept_terms, mode=mode)
+    except Exception:
+        # No second final submit may occur if the page/navigation is uncertain.
+        return tab, "NAVIGATION_FAILED"
+    if status != "GRID_READY":
+        return tab, "GRID_NOT_READY_" + str(status)
+    return tab, "GRID_READY"
+
+
 async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    mode="music", accept_terms=False, reserve_two=False,
                    fallback_any_slot=False,
@@ -611,10 +633,13 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             confirmed_slots = []
             for index, desired in enumerate(priorities):
                 if index > 0:
-                    tab = await tab.get(NCL_URL)
-                    status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
+                    tab, status = await resume_second_booking_grid(
+                        tab, mode=mode, accept_terms=accept_terms)
+                    print(f"booking 2/2 reentry: {status}")
                     if status != "GRID_READY":
-                        return "SECOND_ENTRY_BLOCKED_" + str(status)
+                        print("booking 2/2: NOT_ATTEMPTED; "
+                              "booking 1/2 remains confirmed")
+                        return "FIRST_CONFIRMED_SECOND_NOT_ATTEMPTED_" + status
                 candidates = (ordered_slot_fallback(
                     priorities, allowed, target_index=index,
                     confirmed=confirmed_slots) if fallback_any_slot
