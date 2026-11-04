@@ -45,6 +45,7 @@ class BookingPicker(tk.Tk):
         self.room = tk.StringVar(value="music")
         self.immediate = tk.BooleanVar(value=False)
         self.authorize_submit = tk.BooleanVar(value=False)
+        self.fallback_any_slot = tk.BooleanVar(value=True)
         self.accept_terms = tk.BooleanVar(value=False)
         self.slots = []  # Selection order is also booking order.
         self._build()
@@ -142,6 +143,10 @@ class BookingPicker(tk.Tk):
                         variable=self.immediate, command=self._refresh_summary).pack(anchor="w")
         ttk.Checkbutton(settings, text="我已閱讀網站規範，並允許程式在網站顯示同意視窗時按「同意」",
                         variable=self.accept_terms).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(settings,
+                        text="偏好時段已滿時，自動改選同日同房間的其他時段（預設開啟）",
+                        variable=self.fallback_any_slot,
+                        command=self._refresh_summary).pack(anchor="w", pady=(2, 0))
         ttk.Checkbutton(settings, text="我明確授權正式送出預約（必須勾選）",
                         variable=self.authorize_submit).pack(anchor="w", pady=(2, 0))
 
@@ -244,7 +249,8 @@ class BookingPicker(tk.Tk):
         self.summary.config(
             text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\n"
                  f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\n"
-                 f"模式：{plan}"
+                 f"模式：{plan}\n"
+                 f"自動改選：{'開啟（同日同房間）' if self.fallback_any_slot.get() else '關閉'}"
         )
 
     def _launch(self):
@@ -254,6 +260,7 @@ class BookingPicker(tk.Tk):
                 immediate=self.immediate.get(),
                 auto_submit=self.authorize_submit.get(),
                 accept_terms=self.accept_terms.get(),
+                fallback_any_slot=self.fallback_any_slot.get(),
             )
         except ValueError as exc:
             messagebox.showwarning("請確認設定", str(exc))
@@ -276,6 +283,9 @@ class BookingPicker(tk.Tk):
                        + " → ".join(self.slots) + "\n\n"
                        + ("立即正式預約（會送出）" if self.immediate.get() else
                           f"預定放位：{release_datetime(self.selected_date):%Y/%m/%d 00:00}（台北）")
+                       + ("\n偏好時段不可用時，會嘗試同日同房間其他時段。"
+                          if self.fallback_any_slot.get() else
+                          "\n僅嘗試指定時段，不自動改選。")
                        + "\n先登入國圖並停在日期頁，回終端按 Enter。\n"
                        "送出後不會重複送出同一筆預約。確定啟動？")
         if not messagebox.askyesno("正式預約確認", explanation, icon="warning"):
