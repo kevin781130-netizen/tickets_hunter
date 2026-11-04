@@ -8,6 +8,7 @@ this way, and they never replace a live check.
 A new room added to ncl_openlab_rooms.json automatically gets a page here.
 """
 import html as _html
+import re
 
 NCL_URL_GRID = "https://spms.ncl.edu.tw/NLT/co/media_discussion.jsp"
 NCL_URL_STATUS = "https://spms.ncl.edu.tw/NLT/co/multimedia.jsp"
@@ -44,6 +45,21 @@ document.querySelector('.next-btn') && document.querySelector('.next-btn').addEv
 def _js(value):
     import json
     return json.dumps(value, ensure_ascii=False)
+
+
+def near_miss_label(label):
+    """A different room that reads almost the same: next code number, or last char swapped."""
+    match = re.search(r"\d", label)
+    if match is None:
+        return label[:-1] + "X"
+    digit = label[match.start()]
+    return label[:match.start()] + str((int(digit) + 1) % 10) + label[match.start() + 1:]
+
+
+def longer_code_label(label):
+    """'縫紉機01' -> '縫紉機010': same prefix, different (longer) code. Same text if no digit."""
+    matches = list(re.finditer(r"\d+", label))
+    return label if not matches else label[:matches[0].end()] + "0" + label[matches[0].end():]
 
 
 def grid_html(registry, room_key, day, *, decoys=True, dup_room=False,
@@ -89,7 +105,8 @@ def grid_html(registry, room_key, day, *, decoys=True, dup_room=False,
 
     summary = profile.sample_tile_label
     shown_summary = {"wrong_room": "P99 其他空間",
-                     "near_miss_room": summary[:-1] + "X"}.get(checkout, summary)
+                     "near_miss_room": near_miss_label(summary),
+                     "longer_code_room": longer_code_label(summary)}.get(checkout, summary)
     gobook_date = "2000-01-01" if checkout == "wrong_date_attr" else iso
     gobook_slot = "00:00-00:01" if checkout == "wrong_slot_attr" else "__SLOT__"
     button = ""
@@ -126,7 +143,9 @@ def grid_html(registry, room_key, day, *, decoys=True, dup_room=False,
 
 def status_html(registry, *, dup_label=None):
     # entry_label is a CATEGORY on the status page; several rooms may share one.
-    labels = list(dict.fromkeys(p.entry_label for p in registry.rooms.values()))
+    # Rooms with entry_label None have no known category and are opened by hand.
+    labels = list(dict.fromkeys(p.entry_label for p in registry.rooms.values()
+                                if p.entry_label is not None))
     labels.extend(DECOY_STATUS)
     if dup_label:
         labels.append(dup_label)

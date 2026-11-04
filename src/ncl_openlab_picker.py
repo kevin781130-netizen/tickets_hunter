@@ -1,29 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Windows Tkinter launcher for the NCL booking workflow.
+"""Tkinter booking console for NCL OPEN LAB (Windows and macOS, same code).
 
-Manual browser login remains mandatory. No network calls or credentials are
-handled by this window. Booking starts only after an explicit confirmation.
+Pick equipment, date and one or two slots, choose when to start (default:
+7 days before the date at 00:00:00 Taipei, freely editable), authorise, and
+press "start". The window launches the shared engine, shows the countdown and
+state, and can cancel while nothing has been booked yet.
+
+Manual browser login remains mandatory. No credentials are handled here.
 """
 import calendar
-import os
-from datetime import date, datetime, timedelta
-from pathlib import Path
 import subprocess
 import sys
 import tkinter as tk
+from datetime import date, datetime, timedelta
 from tkinter import messagebox, ttk
 
+from ncl_openlab_control import (
+    ACTIVE_STATES, CANCELLABLE, HISTORY_PATH, LOCK_PATH, PROJECT_ROOT, STATE_LABELS,
+    DuplicateStart, RunSupervisor, read_history,
+)
 from ncl_openlab_picker_model import (
-    ROOM_CHOICES, TAIPEI, available_slots, build_booking_args,
-    console_python, release_datetime,
+    ROOM_CHOICES, TAIPEI, available_slots, build_booking_args, default_run_at_text,
+    engine_command, parse_start_fields, room_requires_ack, start_notes,
+    summary_lines, validate_start,
 )
 
 BURGUNDY = "#731d20"
 GOLD = "#a88057"
 PAPER = "#faf8f5"
 DARK = "#2d2926"
-BORDER = "#dad0c9"
+MUTED = "#756f6a"
+IDLE_BG = "#f2edeb"
+STATE_COLORS = {
+    "IDLE": MUTED, "LAUNCHING": GOLD, "LOGIN": GOLD, "STANDBY": "#1f6f8b",
+    "RUNNING": BURGUNDY, "SUCCESS": "#2e7d32", "FAILED": "#b3261e",
+    "UNKNOWN": "#b36b00", "CANCELLED": MUTED, "FINISHED": MUTED, "ERROR": "#b3261e",
+}
+CANCEL_FORCE_AFTER = timedelta(seconds=10)
+TICK_MS = 200
+
+
+def ui_font(size=10, bold=False):
+    family = {"darwin": "PingFang TC", "win32": "Microsoft JhengHei UI"}.get(
+        sys.platform, "sans-serif")
+    return (family, size, "bold") if bold else (family, size)
 
 
 def month_shift(year, month, offset):
@@ -31,79 +52,139 @@ def month_shift(year, month, offset):
     return index // 12, index % 12 + 1
 
 
+class FlatButton(tk.Label):
+    """Label-based button: colours render identically on Windows and macOS."""
+
+    def __init__(self, parent, text, command, *, primary=False, **kwargs):
+        self._command, self._enabled, self._primary = command, True, primary
+        super().__init__(parent, text=text, cursor="hand2", padx=kwargs.pop("padx", 10),
+                         pady=kwargs.pop("pady", 6), **kwargs)
+        self.bind("<Button-1>", lambda event: self.invoke())
+        self.set_look(False)
+
+    def set_look(self, selected):
+        if not self._enabled:
+            self.configure(bg="#e6e1de", fg="#aaa5a2", relief="flat", cursor="arrow")
+        elif self._primary or selected:
+            self.configure(bg=BURGUNDY, fg="white", relief="sunken" if selected else "raised",
+                           cursor="hand2")
+        else:
+            self.configure(bg=IDLE_BG, fg=DARK, relief="ridge", cursor="hand2")
+
+    def set_enabled(self, enabled, selected=False):
+        self._enabled = bool(enabled)
+        self.set_look(selected)
+
+    @property
+    def enabled(self):
+        return self._enabled
+
+    def invoke(self):
+        if self._enabled:
+            self._command()
+
+
 class BookingPicker(tk.Tk):
-    def __init__(self):
+    def __init__(self, *, popen=subprocess.Popen, history_path=HISTORY_PATH,
+                 lock_path=LOCK_PATH, now=None, executable=None, command_builder=engine_command):
         super().__init__()
-        self.title("國圖 OPEN LAB｜預約日期與時段")
-        self.geometry("850x690")
-        self.minsize(690, 480)
+        self._popen, self._history_path, self._lock_path = popen, history_path, lock_path
+        self._command_builder = command_builder
+        self._now = now or (lambda: datetime.now(TAIPEI))
+        self._executable = executable
+        self.title("國圖 OPEN LAB｜預約控制台")
+        self.geometry("920x820")
+        self.minsize(720, 560)
         self.configure(bg=PAPER)
 
-        now = datetime.now(TAIPEI)
-        self.selected_date = now.date() + timedelta(days=8)
-        self.view_year = self.selected_date.year
-        self.view_month = self.selected_date.month
-        self.room = tk.StringVar(value="music")
-        self.immediate = tk.BooleanVar(value=False)
+        today = self._now().date()
+        self.selected_date = today + timedelta(days=8)
+        self.view_year, self.view_month = self.selected_date.year, self.selected_date.month
+        self.room = tk.StringVar(value=next(iter(ROOM_CHOICES)))
+        self.mode = tk.StringVar(value="scheduled")  # scheduled | now
+        self.start_date = tk.StringVar()
+        self.start_time = tk.StringVar()
+        self.sync_clock = tk.BooleanVar(value=True)
         self.authorize_submit = tk.BooleanVar(value=False)
         self.accept_terms = tk.BooleanVar(value=False)
+        self.ack_unverified = tk.BooleanVar(value=False)
         self.slots = []  # Selection order is also booking order.
+        self.supervisor = None
+        self._start_edited = False
+        self._cancel_at = None
+        self._shown_log = 0
         self._build()
+        self._reset_start_time()
         self._render_calendar()
         self._render_slots()
-        self._refresh_summary()
+        self._refresh_all()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(TICK_MS, self._tick)
 
+    # ------------------------------------------------------------ layout
     def _build(self):
-        # The bottom controls remain visible even on 125–200% Windows display
-        # scaling and low-height screens. Only the upper configuration scrolls.
+        # The action footer stays visible on small / high-DPI screens; only the
+        # configuration area above it scrolls.
         footer = tk.Frame(self, bg=PAPER, padx=18, pady=9)
         footer.pack(side="bottom", fill="x")
-        self.summary = tk.Label(footer, bg=PAPER, fg=DARK, justify="left",
-                                anchor="w", font=("Microsoft JhengHei UI", 10))
-        self.summary.pack(fill="x", pady=(0, 5))
-        tk.Button(footer, text="確認設定並開啟預約瀏覽器", bg=BURGUNDY, fg="white",
-                  activebackground=GOLD, activeforeground="white",
-                  pady=9, font=("Microsoft JhengHei UI", 12, "bold"),
-                  command=self._launch).pack(fill="x")
-        tk.Label(footer, bg=PAPER, fg="#756f6a", anchor="w",
-                 text="勾選兩段＝預約兩筆；第一筆未確認成功就停止。").pack(
+        status_row = tk.Frame(footer, bg=PAPER)
+        status_row.pack(fill="x")
+        self.state_label = tk.Label(status_row, bg=PAPER, anchor="w", font=ui_font(12, True))
+        self.state_label.pack(side="left")
+        self.countdown_label = tk.Label(status_row, bg=PAPER, fg=DARK, anchor="e",
+                                        font=ui_font(16, True))
+        self.countdown_label.pack(side="right")
+        self.summary = tk.Label(footer, bg=PAPER, fg=DARK, justify="left", anchor="w",
+                                font=ui_font(10))
+        self.summary.pack(fill="x", pady=(4, 6))
+        buttons = tk.Frame(footer, bg=PAPER)
+        buttons.pack(fill="x")
+        self.start_button = FlatButton(buttons, "啟動排程", self._start, primary=True,
+                                       font=ui_font(12, True), pady=9)
+        self.start_button.pack(side="left", fill="x", expand=True)
+        self.login_button = FlatButton(buttons, "我已登入，開始待命", self._confirm_login,
+                                       font=ui_font(11), pady=9)
+        self.login_button.pack(side="left", fill="x", expand=True, padx=6)
+        self.cancel_button = FlatButton(buttons, "取消排程", self._cancel,
+                                        font=ui_font(11), pady=9)
+        self.cancel_button.pack(side="left", fill="x", expand=True)
+        tk.Label(footer, bg=PAPER, fg=MUTED, anchor="w", font=ui_font(9),
+                 text="勾選兩段＝預約兩筆；第一筆未確認成功就停止。結果以網站成功頁為準，不保證預約成功。").pack(
                      anchor="w", pady=(4, 0))
 
         viewport = tk.Frame(self, bg=PAPER)
         viewport.pack(side="top", fill="both", expand=True)
-        self.content_canvas = tk.Canvas(
-            viewport, bg=PAPER, highlightthickness=0, borderwidth=0)
-        scroll = ttk.Scrollbar(
-            viewport, orient="vertical", command=self.content_canvas.yview)
+        self.content_canvas = tk.Canvas(viewport, bg=PAPER, highlightthickness=0, borderwidth=0)
+        scroll = ttk.Scrollbar(viewport, orient="vertical", command=self.content_canvas.yview)
         self.content_canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.content_canvas.pack(side="left", fill="both", expand=True)
-
         main = tk.Frame(self.content_canvas, bg=PAPER, padx=18, pady=12)
-        window = self.content_canvas.create_window(
-            (0, 0), window=main, anchor="nw")
-        main.bind("<Configure>", lambda event:
-                  self.content_canvas.configure(
-                      scrollregion=self.content_canvas.bbox("all")))
+        window = self.content_canvas.create_window((0, 0), window=main, anchor="nw")
+        main.bind("<Configure>", lambda event: self.content_canvas.configure(
+            scrollregion=self.content_canvas.bbox("all")))
         self.content_canvas.bind("<Configure>", lambda event:
-                  self.content_canvas.itemconfigure(window, width=event.width))
+                                 self.content_canvas.itemconfigure(window, width=event.width))
         self.content_canvas.bind_all("<MouseWheel>", self._scroll_wheel)
+        self.content_canvas.bind_all("<Button-4>", lambda event: self._scroll_units(-1))
+        self.content_canvas.bind_all("<Button-5>", lambda event: self._scroll_units(1))
 
-        tk.Label(main, text="國圖 OPEN LAB 預約選擇器", bg=PAPER, fg=BURGUNDY,
-                 font=("Microsoft JhengHei UI", 19, "bold")).pack(anchor="w")
-        tk.Label(main, text="選日期 → 選房間 → 勾選 1–2 個時段 → 確認送出",
-                 bg=PAPER, fg=DARK,
-                 font=("Microsoft JhengHei UI", 10)).pack(anchor="w", pady=(3, 13))
+        tk.Label(main, text="國圖 OPEN LAB 預約控制台", bg=PAPER, fg=BURGUNDY,
+                 font=ui_font(19, True)).pack(anchor="w")
+        tk.Label(main, text="選設備 → 選日期 → 選 1–2 個時段 → 設定啟動時間 → 授權並啟動排程",
+                 bg=PAPER, fg=DARK, font=ui_font(10)).pack(anchor="w", pady=(3, 13))
 
-        room_row = tk.LabelFrame(main, text=" 1｜選擇空間 ", bg=PAPER, fg=DARK,
+        room_row = tk.LabelFrame(main, text=" 1｜預約房型／設備 ", bg=PAPER, fg=DARK,
                                  padx=12, pady=8)
         room_row.pack(fill="x", pady=(0, 11))
-        for mode, title in ROOM_CHOICES.items():
-            ttk.Radiobutton(room_row, text=title, value=mode,
-                            variable=self.room, command=self._room_changed).pack(
-                                side="left", padx=(5, 26))
+        self.room_box = ttk.Combobox(room_row, state="readonly", width=44,
+                                     values=list(ROOM_CHOICES.values()))
+        self.room_box.current(list(ROOM_CHOICES).index(self.room.get()))
+        self.room_box.pack(side="left")
+        self.room_box.bind("<<ComboboxSelected>>", self._room_selected)
+        self.room_note = tk.Label(room_row, bg=PAPER, fg=MUTED, font=ui_font(9))
+        self.room_note.pack(side="left", padx=10)
 
-        # Calendar and slots side-by-side keep all controls visible on 720p.
         choices_row = tk.Frame(main, bg=PAPER)
         choices_row.pack(fill="x", pady=(0, 11))
         choices_row.columnconfigure(0, weight=1, uniform="choice")
@@ -113,17 +194,15 @@ class BookingPicker(tk.Tk):
         cal_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         navigation = tk.Frame(cal_frame, bg=PAPER)
         navigation.pack(fill="x", pady=(0, 8))
-        ttk.Button(navigation, text="◀ 上個月", command=lambda: self._change_month(-1)).pack(side="left")
-        self.month_caption = tk.Label(navigation, bg=PAPER, fg=BURGUNDY,
-                                       font=("Microsoft JhengHei UI", 13, "bold"))
+        FlatButton(navigation, "◀ 上個月", lambda: self._change_month(-1)).pack(side="left")
+        self.month_caption = tk.Label(navigation, bg=PAPER, fg=BURGUNDY, font=ui_font(13, True))
         self.month_caption.pack(side="left", expand=True)
-        ttk.Button(navigation, text="下個月 ▶", command=lambda: self._change_month(1)).pack(side="right")
+        FlatButton(navigation, "下個月 ▶", lambda: self._change_month(1)).pack(side="right")
         self.days_frame = tk.Frame(cal_frame, bg=PAPER)
         self.days_frame.pack(fill="x")
         for column in range(7):
             self.days_frame.columnconfigure(column, weight=1, uniform="day")
-        self.date_caption = tk.Label(cal_frame, bg=PAPER, fg=DARK,
-                                     font=("Microsoft JhengHei UI", 10))
+        self.date_caption = tk.Label(cal_frame, bg=PAPER, fg=DARK, font=ui_font(10))
         self.date_caption.pack(anchor="w", pady=(7, 0))
 
         slot_area = tk.LabelFrame(choices_row, text=" 3｜時段（可複選兩個） ",
@@ -131,29 +210,86 @@ class BookingPicker(tk.Tk):
         slot_area.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.slot_frame = tk.Frame(slot_area, bg=PAPER)
         self.slot_frame.pack(fill="x")
-        self.slot_note = tk.Label(slot_area, bg=PAPER, fg=DARK, anchor="w",
-                                  font=("Microsoft JhengHei UI", 10))
+        self.slot_note = tk.Label(slot_area, bg=PAPER, fg=DARK, anchor="w", font=ui_font(10))
         self.slot_note.pack(fill="x", pady=(7, 0))
-        ttk.Button(slot_area, text="清除時段", command=self._clear_slots).pack(anchor="e")
+        FlatButton(slot_area, "清除時段", self._clear_slots).pack(anchor="e")
 
-        settings = tk.LabelFrame(main, text=" 4｜執行選項 ", bg=PAPER, fg=DARK,
-                                 padx=12, pady=8)
-        settings.pack(fill="x", pady=(0, 11))
-        ttk.Checkbutton(settings, text="立即正式預約（不等午夜；會真的送出；預設關閉）",
-                        variable=self.immediate, command=self._refresh_summary).pack(anchor="w")
-        ttk.Checkbutton(settings, text="我已閱讀網站規範，並允許程式在網站顯示同意視窗時按「同意」",
-                        variable=self.accept_terms).pack(anchor="w", pady=(2, 0))
-        ttk.Checkbutton(settings, text="我明確授權正式送出預約（必須勾選）",
-                        variable=self.authorize_submit).pack(anchor="w", pady=(2, 0))
+        when = tk.LabelFrame(main, text=" 4｜自動開始預約的時間（台北時間 Asia/Taipei） ",
+                             bg=PAPER, fg=DARK, padx=12, pady=8)
+        when.pack(fill="x", pady=(0, 11))
+        mode_row = tk.Frame(when, bg=PAPER)
+        mode_row.pack(fill="x")
+        ttk.Radiobutton(mode_row, text="排程執行（到時間自動開始）", value="scheduled",
+                        variable=self.mode, command=self._refresh_all).pack(side="left")
+        ttk.Radiobutton(mode_row, text="立即執行（登入後馬上開始，會真的送出）", value="now",
+                        variable=self.mode, command=self._refresh_all).pack(side="left", padx=20)
+        time_row = tk.Frame(when, bg=PAPER)
+        time_row.pack(fill="x", pady=(8, 0))
+        tk.Label(time_row, text="日期", bg=PAPER, fg=DARK, font=ui_font(10)).pack(side="left")
+        self.date_entry = ttk.Entry(time_row, textvariable=self.start_date, width=12)
+        self.date_entry.pack(side="left", padx=(4, 12))
+        tk.Label(time_row, text="時間（精確到秒）", bg=PAPER, fg=DARK,
+                 font=ui_font(10)).pack(side="left")
+        self.time_entry = ttk.Entry(time_row, textvariable=self.start_time, width=10)
+        self.time_entry.pack(side="left", padx=(4, 12))
+        FlatButton(time_row, "重設為預設", self._reset_start_time).pack(side="left")
+        for entry in (self.date_entry, self.time_entry):
+            entry.bind("<KeyRelease>", self._start_typed)
+        self.start_note = tk.Label(when, bg=PAPER, fg=MUTED, anchor="w", font=ui_font(9))
+        self.start_note.pack(fill="x", pady=(5, 0))
+        ttk.Checkbutton(when, text="啟動前以網路時間校正系統時鐘（失敗時改用系統時間）",
+                        variable=self.sync_clock).pack(anchor="w", pady=(4, 0))
 
+        auth = tk.LabelFrame(main, text=" 5｜授權與條款 ", bg=PAPER, fg=DARK, padx=12, pady=8)
+        auth.pack(fill="x", pady=(0, 11))
+        ttk.Checkbutton(auth, text="我已閱讀網站規範，並允許程式在網站顯示同意視窗時按「同意」",
+                        variable=self.accept_terms).pack(anchor="w")
+        ttk.Checkbutton(auth, text="我明確授權正式送出預約（必須勾選）",
+                        variable=self.authorize_submit,
+                        command=self._refresh_all).pack(anchor="w", pady=(2, 0))
+        self.ack_check = ttk.Checkbutton(
+            auth, text="我了解此設備尚未實機驗證，仍要嘗試（確認頁比對不符時不會送出）",
+            variable=self.ack_unverified)
+
+        logs = tk.LabelFrame(main, text=" 6｜執行紀錄 ", bg=PAPER, fg=DARK, padx=8, pady=8)
+        logs.pack(fill="both", expand=True, pady=(0, 6))
+        self.log_box = tk.Text(logs, height=7, wrap="word", state="disabled", bg="white",
+                               fg=DARK, font=ui_font(9))
+        self.log_box.pack(fill="x")
+        tk.Label(logs, text="歷史預約紀錄", bg=PAPER, fg=DARK, anchor="w",
+                 font=ui_font(9, True)).pack(fill="x", pady=(8, 2))
+        self.history_box = tk.Listbox(logs, height=5, bg="white", fg=DARK, font=ui_font(9),
+                                      activestyle="none")
+        self.history_box.pack(fill="x")
+
+    # --------------------------------------------------------- scrolling
     def _scroll_wheel(self, event):
         if event.delta:
-            self.content_canvas.yview_scroll(
-                -1 if event.delta > 0 else 1, "units")
+            self._scroll_units(-1 if event.delta > 0 else 1)
+
+    def _scroll_units(self, units):
+        self.content_canvas.yview_scroll(units, "units")
+
+    # -------------------------------------------------------- selection
+    @property
+    def locked(self):
+        return self.supervisor is not None and self.supervisor.active
+
+    def _room_key(self):
+        return self.room.get()
+
+    def _room_selected(self, _event=None):
+        if self.locked:
+            self.room_box.current(list(ROOM_CHOICES).index(self.room.get()))
+            return
+        self.room.set(list(ROOM_CHOICES)[self.room_box.current()])
+        self.slots.clear()
+        self.ack_unverified.set(False)
+        self._render_slots()
+        self._refresh_all()
 
     def _change_month(self, offset):
-        self.view_year, self.view_month = month_shift(
-            self.view_year, self.view_month, offset)
+        self.view_year, self.view_month = month_shift(self.view_year, self.view_month, offset)
         self._render_calendar()
 
     def _render_calendar(self):
@@ -161,46 +297,41 @@ class BookingPicker(tk.Tk):
             widget.destroy()
         self.month_caption.config(text=f"{self.view_year} 年 {self.view_month:02d} 月")
         for col, label in enumerate(("一", "二", "三", "四", "五", "六", "日")):
-            tk.Label(self.days_frame, text=label, bg=PAPER,
-                     fg=DARK).grid(row=0, column=col, pady=2)
-        today = datetime.now(TAIPEI).date()
-        weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(
-            self.view_year, self.view_month)
+            tk.Label(self.days_frame, text=label, bg=PAPER, fg=DARK).grid(row=0, column=col, pady=2)
+        today = self._now().date()
+        weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(self.view_year, self.view_month)
         for row, week in enumerate(weeks, start=1):
             for col, day_number in enumerate(week):
                 if not day_number:
                     continue
                 chosen = date(self.view_year, self.view_month, day_number)
-                selected = chosen == self.selected_date
-                # Openings are seven days ahead. The upcoming midnight release
-                # can be for today+8. Allow picking future dates up to 31 days.
+                # Openings are seven days ahead; allow picking up to 31 days out.
                 enabled = today <= chosen <= today + timedelta(days=31)
-                tk.Button(
-                    self.days_frame, text=str(day_number), width=5,
-                    bg=BURGUNDY if selected else PAPER,
-                    fg="white" if selected else (DARK if enabled else "#aaa5a2"),
-                    relief="sunken" if selected else "flat",
-                    state="normal" if enabled else "disabled",
-                    command=lambda chosen=chosen: self._pick_date(chosen)
-                ).grid(row=row, column=col, padx=1, pady=1, sticky="ew")
+                cell = FlatButton(self.days_frame, str(day_number),
+                                  lambda chosen=chosen: self._pick_date(chosen), padx=4, pady=3)
+                cell.set_enabled(enabled, selected=chosen == self.selected_date)
+                cell.grid(row=row, column=col, padx=1, pady=1, sticky="ew")
         self.date_caption.config(text=f"已選：{self.selected_date.isoformat()}（台北時間）")
 
     def _pick_date(self, selected):
+        if self.locked:
+            return
         self.selected_date = selected
+        if not self._start_edited:
+            self._reset_start_time()
         self._render_calendar()
-        self._refresh_summary()
-
-    def _room_changed(self):
-        self.slots.clear()
-        self._render_slots()
-        self._refresh_summary()
+        self._refresh_all()
 
     def _clear_slots(self):
+        if self.locked:
+            return
         self.slots.clear()
         self._render_slots()
-        self._refresh_summary()
+        self._refresh_all()
 
     def _toggle_slot(self, value):
+        if self.locked:
+            return
         if value in self.slots:
             self.slots.remove(value)
         elif len(self.slots) >= 2:
@@ -209,91 +340,197 @@ class BookingPicker(tk.Tk):
         else:
             self.slots.append(value)
         self._render_slots()
-        self._refresh_summary()
+        self._refresh_all()
 
     def _render_slots(self):
         for widget in self.slot_frame.winfo_children():
             widget.destroy()
-        choices = available_slots(self.room.get())
+        choices = available_slots(self._room_key())
         columns = 2 if len(choices) > 4 else 3
         for col in range(columns):
             self.slot_frame.columnconfigure(col, weight=1, uniform="slot")
         for index, slot in enumerate(choices):
             priority = (self.slots.index(slot) + 1) if slot in self.slots else None
-            button = tk.Button(
-                self.slot_frame, text=f"{'第' + str(priority) + '筆 ✓ ' if priority else '選取  '}{slot}",
-                bg=BURGUNDY if priority else "#f2edeb",
-                fg="white" if priority else DARK,
-                relief="sunken" if priority else "ridge",
-                command=lambda slot=slot: self._toggle_slot(slot),
-                padx=9, pady=8,
-            )
-            button.grid(row=index // columns, column=index % columns,
-                        padx=3, pady=3, sticky="ew")
+            label = f"第{priority}筆 {slot}" if priority else slot
+            button = FlatButton(self.slot_frame, label, lambda slot=slot: self._toggle_slot(slot),
+                                padx=4)
+            button.set_enabled(True, selected=bool(priority))
+            button.grid(row=index // columns, column=index % columns, padx=3, pady=3, sticky="ew")
         self.slot_note.config(
-            text=("選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。"
-                  if not self.slots else
-                  "預約順序：" + " → ".join(self.slots))
-        )
+            text=("選擇一個＝預約一筆；選擇兩個＝依順序預約兩筆。" if not self.slots
+                  else "預約順序：" + " → ".join(self.slots)))
 
-    def _refresh_summary(self):
-        release = release_datetime(self.selected_date)
-        plan = "立即正式預約（真實送出；無午夜重試）" if self.immediate.get() else (
-            f"放位日 {release:%Y/%m/%d} 00:00（台北）；"
-            "23:59:50 預刷新；未開放每 3 秒重試（最多 90 秒）"
-        )
-        self.summary.config(
-            text=f"日期：{self.selected_date.isoformat()}    空間：{ROOM_CHOICES[self.room.get()]}\n"
-                 f"時段：{' → '.join(self.slots) if self.slots else '尚未選擇'}\n"
-                 f"模式：{plan}"
-        )
+    # ----------------------------------------------------------- schedule
+    def _reset_start_time(self):
+        if self.locked:
+            return
+        stamp = default_run_at_text(self.selected_date)
+        self.start_date.set(stamp[:10])
+        self.start_time.set(stamp[11:])
+        self._start_edited = False
+        if hasattr(self, "summary"):
+            self._refresh_all()
 
-    def _launch(self):
+    def _start_typed(self, _event=None):
+        self._start_edited = True
+        self._refresh_all()
+
+    def _parse_start(self):
+        """(run_at or None, error text or None) for the current mode."""
+        if self.mode.get() == "now":
+            return None, None
+        try:
+            run_at = parse_start_fields(self.start_date.get(), self.start_time.get())
+        except ValueError as exc:
+            return None, str(exc)
+        return run_at, validate_start(self.selected_date, run_at, self._now())
+
+    # ----------------------------------------------------------- refresh
+    def _refresh_all(self):
+        self.room_note.config(text="尚未實機驗證" if room_requires_ack(self._room_key()) else "")
+        if room_requires_ack(self._room_key()):
+            self.ack_check.pack(anchor="w", pady=(2, 0))
+        else:
+            self.ack_check.pack_forget()
+        now_mode = self.mode.get() == "now"
+        for entry in (self.date_entry, self.time_entry):
+            entry.configure(state="disabled" if now_mode or self.locked else "normal")
+        self.room_box.configure(state="disabled" if self.locked else "readonly")
+        run_at, error = self._parse_start()
+        if now_mode:
+            self.start_note.config(text="立即執行：登入完成後立刻開始預約，不等待放位時間。", fg=BURGUNDY)
+        elif error:
+            self.start_note.config(text=error, fg="#b3261e")
+        else:
+            self.start_note.config(text=start_notes(self.selected_date, run_at), fg=MUTED)
+        self.summary.config(text="\n".join(summary_lines(
+            day=self.selected_date, room=self._room_key(), slots=self.slots,
+            immediate=now_mode, run_at=run_at)))
+        self.start_button.configure(text="立即執行" if now_mode else "啟動排程")
+        self._refresh_buttons()
+
+    def _refresh_buttons(self):
+        state = self.supervisor.state if self.supervisor else "IDLE"
+        self.start_button.set_enabled(state not in ACTIVE_STATES)
+        self.login_button.set_enabled(state == "LOGIN")
+        self.cancel_button.set_enabled(state in CANCELLABLE)
+        self.state_label.config(text=STATE_LABELS[state], fg=STATE_COLORS[state])
+
+    def _tick(self):
+        try:
+            if self.supervisor is not None:
+                changed = self.supervisor.pump()
+                if changed:
+                    self._refresh_buttons()
+                    self._show_log()
+                    if not self.supervisor.active:
+                        self._refresh_all()
+                        self._show_history()
+                self.countdown_label.config(text=self._countdown_text())
+                self._force_stop_if_stuck()
+        finally:
+            self.after(TICK_MS, self._tick)
+
+    def _countdown_text(self):
+        seconds = self.supervisor.countdown()
+        if seconds is None:
+            return ""
+        return "即將開始…" if seconds <= 0 else f"{self.supervisor.countdown_text()} 後開始預約"
+
+    def _force_stop_if_stuck(self):
+        sup = self.supervisor
+        if sup.cancel_requested and sup.active:
+            self._cancel_at = self._cancel_at or self._now()
+            if self._now() - self._cancel_at > CANCEL_FORCE_AFTER:
+                sup.force_stop()
+        else:
+            self._cancel_at = None
+
+    def _show_log(self):
+        rows = self.supervisor.log[self._shown_log:]
+        self._shown_log = len(self.supervisor.log)
+        self.log_box.configure(state="normal")
+        for stamp, text in rows:
+            self.log_box.insert("end", f"[{stamp}] {text}\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def _show_history(self):
+        self.history_box.delete(0, "end")
+        for row in read_history(8, self._history_path):
+            self.history_box.insert("end", "｜".join(str(x) for x in (
+                str(row.get("finished_taipei", ""))[5:19].replace("T", " "),
+                ROOM_CHOICES.get(row.get("room"), row.get("room")), row.get("date"),
+                " → ".join(row.get("slots") or []), STATE_LABELS.get(row.get("state"), row.get("state")))))
+
+    # ----------------------------------------------------------- actions
+    def _start(self):
+        if self.locked:
+            messagebox.showwarning("已在執行", "已有預約程序在執行，請先等待結果或取消。")
+            return
+        run_at, error = self._parse_start()
+        if error:
+            messagebox.showwarning("請確認啟動時間", error)
+            return
+        immediate = self.mode.get() == "now"
         try:
             argv = build_booking_args(
-                day=self.selected_date, room=self.room.get(), slots=self.slots,
-                immediate=self.immediate.get(),
-                auto_submit=self.authorize_submit.get(),
-                accept_terms=self.accept_terms.get(),
-            )
+                day=self.selected_date, room=self._room_key(), slots=self.slots,
+                immediate=immediate, run_at=run_at, auto_submit=self.authorize_submit.get(),
+                accept_terms=self.accept_terms.get(), ack_unverified=self.ack_unverified.get(),
+                sync_clock=self.sync_clock.get(), machine_status=True)
         except ValueError as exc:
             messagebox.showwarning("請確認設定", str(exc))
             return
-
-        if not self.immediate.get():
-            remaining = (release_datetime(self.selected_date) -
-                         datetime.now(TAIPEI)).total_seconds()
-            if not 0 <= remaining <= 900:
-                messagebox.showwarning(
-                    "午夜放位時間",
-                    "正式午夜模式請在放位前 15 分鐘內啟動。\n"
-                    "若該日期已開放，請勾選「立即正式預約」（會真的送出）。"
-                )
-                return
-
-        count = len(self.slots)
-        explanation = (f"將正式預約 {count} 個時段：\n"
-                       f"{self.selected_date.isoformat()}｜{ROOM_CHOICES[self.room.get()]}\n"
-                       + " → ".join(self.slots) + "\n\n"
-                       + ("立即正式預約（會送出）" if self.immediate.get() else
-                          f"預定放位：{release_datetime(self.selected_date):%Y/%m/%d 00:00}（台北）")
-                       + "\n先登入國圖並停在日期頁，回終端按 Enter。\n"
-                       "送出後不會重複送出同一筆預約。確定啟動？")
-        if not messagebox.askyesno("正式預約確認", explanation, icon="warning"):
+        lines = summary_lines(day=self.selected_date, room=self._room_key(), slots=self.slots,
+                              immediate=immediate, run_at=run_at)
+        text = ("將正式預約，並會真的送出：\n\n" + "\n".join(lines) +
+                "\n\n接著會開啟 Chrome，請登入國圖，再按「我已登入，開始待命」。\n"
+                "送出後結果不明時不會重複送出；不保證預約成功，以網站結果為準。確定啟動？")
+        if not messagebox.askyesno("正式預約確認", text, icon="warning"):
             return
-
-        entry = Path(__file__).resolve().with_name("ncl_openlab_autobook.py")
-        command = [console_python(sys.executable), str(entry), *argv]
+        self.supervisor = RunSupervisor(
+            self._command_builder(argv, self._executable),
+            meta={"room": self._room_key(), "date": self.selected_date.isoformat(),
+                  "slots": list(self.slots), "mode": "now" if immediate else "scheduled",
+                  "run_at": run_at.isoformat() if run_at else None},
+            popen=self._popen, cwd=str(PROJECT_ROOT), history_path=self._history_path,
+            lock_path=self._lock_path, now=self._now)
+        self._shown_log = 0
+        self.log_box.configure(state="normal")
+        self.log_box.delete("1.0", "end")
+        self.log_box.configure(state="disabled")
         try:
-            if os.name == "nt":
-                subprocess.Popen(command, cwd=str(entry.parent.parent),
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE)
-            else:
-                raise OSError("此啟動器目前僅支援 Windows 新主控台")
+            self.supervisor.start()
+        except DuplicateStart as exc:
+            messagebox.showwarning("已在執行", str(exc))
+            self.supervisor = None
+            return
         except OSError as exc:
             messagebox.showerror("無法啟動", str(exc))
+            self.supervisor = None
             return
-        messagebox.showinfo("已啟動", "已開啟獨立終端執行預約。\n請登入國圖，再回終端按 Enter。")
+        self._refresh_all()
+        self._show_log()
+
+    def _confirm_login(self):
+        if self.supervisor and self.supervisor.confirm_login():
+            self._refresh_buttons()
+
+    def _cancel(self):
+        if self.supervisor and self.supervisor.cancel():
+            self._refresh_buttons()
+
+    def _on_close(self):
+        sup = self.supervisor
+        if sup is not None and sup.state == "RUNNING":
+            messagebox.showwarning("預約進行中", "預約正在執行，請等結果出現後再關閉視窗。")
+            return
+        if sup is not None and sup.active:
+            if not messagebox.askyesno("取消排程", "排程尚未開始預約。取消並關閉視窗嗎？"):
+                return
+            sup.cancel()
+        self.destroy()
 
 
 def main():

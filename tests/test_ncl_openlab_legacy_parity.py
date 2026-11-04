@@ -192,7 +192,7 @@ class BrowserParityTests(unittest.TestCase):
         {}, {"slot_state": "disabled"}, {"slot_state": "no_book"}, {"dup_room": True},
         {"room_disabled": True}, {"date_disabled": True}, {"date_missing": True},
         {"next_button": False}, {"decoys": False},
-        {"checkout": "wrong_room"}, {"checkout": "near_miss_room"},
+        {"checkout": "wrong_room"}, {"checkout": "near_miss_room"}, {"checkout": "longer_code_room"},
         {"checkout": "wrong_date_attr"},
         {"checkout": "wrong_slot_attr"}, {"checkout": "occluded"},
         {"checkout": "missing_button"}, {"checkout": "duplicate_button"},

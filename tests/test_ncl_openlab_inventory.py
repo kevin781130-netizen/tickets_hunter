@@ -113,8 +113,8 @@ class DraftTests(unittest.TestCase):
     def test_completed_draft_is_accepted_and_does_not_collide(self):
         data = completed_config()
         registry = rooms.parse_config(data)
-        self.assertEqual(registry.keys, ("music", "p03", "p05"))
-        self.assertEqual([p.key for p in registry.by_flow()["hourly_slot"]], ["p03", "p05"])
+        self.assertEqual(registry.keys, REGISTRY.keys + ("p05",))
+        self.assertIn("p05", [p.key for p in registry.by_flow()["hourly_slot"]])
 
     def test_draft_keys_do_not_collide_with_existing_rooms(self):
         key, _ = inv.draft_room_entry("P03 個人直播室", ["09:00-10:00"], "hourly_slot", {"p03"})
@@ -149,7 +149,7 @@ class InventoryScriptTests(unittest.TestCase):
         summary = inv.summarize_inventory(raw)
         self.assertTrue(summary["valid"])
         configured = {r["configured_as"] for r in summary["rooms"]}
-        self.assertEqual(configured, {"music", "p03", None})
+        self.assertEqual(configured, set(REGISTRY.keys) | {None})
         self.assertIn("P13 個人直播室", summary["unconfigured_rooms"])
         self.assertEqual(summary["slot_groups"][0]["flow_candidate"], "hourly_slot")
 
@@ -183,7 +183,8 @@ class ConfigOnlyNewRoomTests(unittest.TestCase):
                  "import sys; sys.path.insert(0, 'src'); import ncl_openlab_rooms as r; "
                  "print(','.join(r.get_registry().keys))"],
                 cwd=HERE.parent, env=env, capture_output=True, text=True, timeout=60)
-            self.assertEqual(probe.stdout.strip(), "music,p03,p05", probe.stderr)
+            self.assertEqual(probe.stdout.strip(), ",".join(REGISTRY.keys + ("p05",)),
+                             probe.stderr)
             done = subprocess.run(
                 [sys.executable, "-m", "unittest", "tests.test_ncl_openlab_room_matrix",
                  "tests.test_ncl_openlab_legacy_parity", "-v"],

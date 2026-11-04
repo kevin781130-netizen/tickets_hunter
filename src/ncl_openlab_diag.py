@@ -146,7 +146,16 @@ OUTCOME_HINTS = {
     "SUBMITTED_SUCCESS_UNVERIFIED": (
         "UNKNOWN_DO_NOT_RETRY", "已送出但未見成功頁；請至官網「我的紀錄」核對，勿重送。"),
     "PREVIEW_STOPPED_BEFORE_SUBMIT": ("STOPPED_BY_DESIGN", "未授權送出，已停在最後確認前。"),
+    "TWO_BOOKINGS_CONFIRMED": ("SUCCESS_CONFIRMED", "兩筆預約都已在官方成功頁核對。"),
     "DRY_RUN_COMPLETE": ("DRY_RUN", "僅唯讀診斷，沒有點選預約相關控制項。"),
+    "CANCELLED_BEFORE_START": ("CANCELLED", "排程在開始預約前已取消，沒有送出任何預約。"),
+    "RUN_AT_MISSED": ("BLOCKED", "已錯過預定時間（電腦睡眠或程式停滯）；不會補送，請重新設定。"),
+    "RUN_AT_ALREADY_PASSED": ("BLOCKED", "預定時間已過，沒有執行。"),
+    "RUN_AT_TOO_FAR": ("BLOCKED", "預定時間離現在太遠，沒有等待。"),
+    "RUN_AT_AFTER_TARGET_DAY": ("BLOCKED", "預定時間晚於預約日，沒有執行。"),
+    "PREFLIGHT_TARGET_INVALID": ("BLOCKED", "預約目標（日期、房型或時段）檢查未通過，沒有執行。"),
+    "INVALID_TWO_BOOKING_CONFIGURATION": ("BLOCKED", "兩筆預約設定不合法，沒有執行。"),
+    "INVALID_DRY_RUN_WITH_AUTO_SUBMIT": ("BLOCKED", "診斷模式不可授權送出，沒有執行。"),
     "NO_BOOKABLE_UI_SLOT": ("RETRYABLE_BEFORE_SUBMIT", "指定時段目前沒有可點選的介面狀態。"),
     "BLOCKED_DATE_NOT_UNIQUE": ("RETRYABLE_BEFORE_SUBMIT", "日期方塊不存在或不唯一，可能尚未開放。"),
     "BLOCKED_DATE_DISABLED": ("RETRYABLE_BEFORE_SUBMIT", "日期被禁用，可能尚未開放。"),
@@ -160,8 +169,9 @@ OUTCOME_HINTS = {
 _PREFIX_HINTS = (
     ("RELEASE_WINDOW_EXHAUSTED_", ("WINDOW_EXHAUSTED", "重試時限用完，仍未出現可預約介面。")),
     ("RETRY_ENTRY_BLOCKED_", ("BLOCKED", "重新整理後無法回到日期頁（入口、條款或登入問題）。")),
-    ("PRE_REFRESH_BLOCKED_", ("BLOCKED", "預刷新後無法回到日期頁。")),
-    ("RELEASE_REFRESH_BLOCKED_", ("BLOCKED", "準點刷新後無法回到日期頁。")),
+    ("PRE_REFRESH_BLOCKED_", ("BLOCKED", "預刷新後無法回到日期頁（可能登入失效或網路中斷）；未送出。")),
+    ("RELEASE_REFRESH_BLOCKED_REFRESH_FAILED_", ("BLOCKED", "準點刷新失敗（網路中斷或分頁異常）；未送出，請檢查網路與登入。")),
+    ("RELEASE_REFRESH_BLOCKED_", ("BLOCKED", "準點刷新後無法回到日期頁（可能登入失效或入口改版）；未送出。")),
     ("FIRST_UNVERIFIED_SECOND_NOT_ATTEMPTED_", ("UNKNOWN_DO_NOT_RETRY", "第一筆未確認，第二筆未執行。")),
     ("SECOND_NOT_CONFIRMED_", ("UNKNOWN_DO_NOT_RETRY", "第二筆未確認成功；請至官網核對。")),
     ("SECOND_ENTRY_BLOCKED_", ("BLOCKED", "第二筆入口無法回到日期頁。")),
@@ -199,7 +209,7 @@ def sanitize_trace(trace):
 
 
 def build_report(*, day, mode, priorities, outcome, trace, flags,
-                 diagnosis=None, screenshot=None, now=None):
+                 diagnosis=None, screenshot=None, now=None, schedule=None):
     profile = get_registry().room(mode)
     stamp = (now or datetime.now(TAIPEI_TZ)).astimezone(TAIPEI_TZ)
     return {
@@ -210,6 +220,7 @@ def build_report(*, day, mode, priorities, outcome, trace, flags,
         "flags": {k: bool(v) for k, v in sorted(flags.items())},
         "outcome": explain_outcome(outcome),
         "trace": sanitize_trace(trace),
+        "schedule": schedule,
         "diagnosis": diagnosis,
         "screenshot": screenshot,
         "privacy": "no page text, cookies, credentials or form values recorded",

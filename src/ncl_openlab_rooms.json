@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "_comment": "NCL OPEN LAB 房型設定。新增房型優先只改這個檔案；流程(flow)代表DOM操作模型，同流程的房型共用同一份引擎與測試。",
+  "_comment": "NCL OPEN LAB 房型設定。新增房型優先只改這個檔案；流程(flow)代表DOM操作模型，同流程的房型共用同一份引擎與測試。templates 供同類設備共用欄位（extends）。",
   "flows": {
     "block_slot": {
       "description": "多小時區塊時段：.time-box2；點選前必須帶 book class，選取後以 selected 表示。",
@@ -15,16 +15,50 @@
       "book_class_marks_selected": true
     }
   },
+  "templates": {
+    "equipment_1h": {
+      "entry_label": null,
+      "flow": "hourly_slot",
+      "slots": {
+        "kind": "hourly",
+        "start": 9,
+        "end": 20
+      },
+      "default_all_slots": false,
+      "single_slot_option": true,
+      "submit_requires_ack": true,
+      "evidence": {
+        "live": "NOT_VERIFIED",
+        "live_notes": "2026-11-04 實機盤點：房型方塊與 .time-box[data-param1] 的 11 個一小時時段（僅縫紉機01 觀察到時段）；現況頁類別名、最後確認頁用字與成交尚未驗證，確認頁比對採房名且不符即不送出。",
+        "source": "ncl_reports/ncl_inventory_20261104_144349.json"
+      }
+    }
+  },
   "rooms": {
     "music": {
       "label": "音樂創作室",
       "ui_label": "音樂創作室（3 小時）",
       "entry_label": "音樂創作室",
       "flow": "block_slot",
-      "tile_match": {"kind": "includes", "value": "音樂創作室"},
-      "summary_match": {"text_all": ["音樂創作室"], "regex_all": []},
+      "tile_match": {
+        "kind": "includes",
+        "value": "音樂創作室"
+      },
+      "summary_match": {
+        "text_all": [
+          "音樂創作室"
+        ],
+        "regex_all": []
+      },
       "sample_tile_label": "音樂創作室",
-      "slots": {"kind": "list", "values": ["09:00-12:00", "13:00-16:00", "17:00-20:00"]},
+      "slots": {
+        "kind": "list",
+        "values": [
+          "09:00-12:00",
+          "13:00-16:00",
+          "17:00-20:00"
+        ]
+      },
       "default_all_slots": true,
       "single_slot_option": false,
       "submit_requires_ack": false,
@@ -39,10 +73,24 @@
       "ui_label": "P03 個人直播室（1 小時）",
       "entry_label": "個人直播室",
       "flow": "hourly_slot",
-      "tile_match": {"kind": "regex", "value": "^P03(?:\\s|$)"},
-      "summary_match": {"text_all": ["個人直播室"], "regex_all": ["\\bP03\\b"]},
+      "tile_match": {
+        "kind": "regex",
+        "value": "^P03(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "個人直播室"
+        ],
+        "regex_all": [
+          "\\bP03\\b"
+        ]
+      },
       "sample_tile_label": "P03 個人直播室",
-      "slots": {"kind": "hourly", "start": 9, "end": 20},
+      "slots": {
+        "kind": "hourly",
+        "start": 9,
+        "end": 20
+      },
       "default_all_slots": false,
       "single_slot_option": true,
       "submit_requires_ack": false,
@@ -51,6 +99,168 @@
         "live_notes": "單筆（日期、房號、時段、最後確認）實機成功並出現 SUCCESS_PAGE_MATCHED。",
         "source": "docs/NCL_RC_CLOSEOUT.md"
       }
+    },
+    "sewing01": {
+      "extends": "equipment_1h",
+      "label": "縫紉機01",
+      "ui_label": "縫紉機01（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機01(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機01"
+        ],
+        "regex_all": [
+          "縫紉機01(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機01 1 人"
+    },
+    "sewing02": {
+      "extends": "equipment_1h",
+      "label": "縫紉機02",
+      "ui_label": "縫紉機02（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機02(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機02"
+        ],
+        "regex_all": [
+          "縫紉機02(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機02 1 人"
+    },
+    "sewing03": {
+      "extends": "equipment_1h",
+      "label": "縫紉機03",
+      "ui_label": "縫紉機03（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機03(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機03"
+        ],
+        "regex_all": [
+          "縫紉機03(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機03 1 人"
+    },
+    "sewing04": {
+      "extends": "equipment_1h",
+      "label": "縫紉機04",
+      "ui_label": "縫紉機04（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機04(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機04"
+        ],
+        "regex_all": [
+          "縫紉機04(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機04 1 人"
+    },
+    "sewing05": {
+      "extends": "equipment_1h",
+      "label": "縫紉機05",
+      "ui_label": "縫紉機05（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機05(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機05"
+        ],
+        "regex_all": [
+          "縫紉機05(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機05 1 人"
+    },
+    "sewing06": {
+      "extends": "equipment_1h",
+      "label": "縫紉機06",
+      "ui_label": "縫紉機06（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機06(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機06"
+        ],
+        "regex_all": [
+          "縫紉機06(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機06 1 人"
+    },
+    "sewing07": {
+      "extends": "equipment_1h",
+      "label": "縫紉機07",
+      "ui_label": "縫紉機07（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機07(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機07"
+        ],
+        "regex_all": [
+          "縫紉機07(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機07 1 人"
+    },
+    "sewing08": {
+      "extends": "equipment_1h",
+      "label": "縫紉機08",
+      "ui_label": "縫紉機08（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^縫紉機08(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "縫紉機08"
+        ],
+        "regex_all": [
+          "縫紉機08(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "縫紉機08 1 人"
+    },
+    "embroidery01": {
+      "extends": "equipment_1h",
+      "label": "刺繡機01",
+      "ui_label": "刺繡機01（1 小時）",
+      "tile_match": {
+        "kind": "regex",
+        "value": "^刺繡機01(?:\\s|$)"
+      },
+      "summary_match": {
+        "text_all": [
+          "刺繡機01"
+        ],
+        "regex_all": [
+          "刺繡機01(?!\\d)"
+        ]
+      },
+      "sample_tile_label": "刺繡機01 1 人"
     }
   }
 }

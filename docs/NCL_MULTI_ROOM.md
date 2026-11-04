@@ -41,7 +41,8 @@ ncl_openlab_picker*.py   GUI；房型與時段選單由設定檔產生
 |---|---|---|---|
 | P03 個人直播室 (`p03`) | 完整走查與負向矩陣 | 單筆實機成功（日期、房號、時段、最後確認） | **已支援（實機驗證）** |
 | 音樂創作室 (`music`) | 完整走查與負向矩陣 | **NOT_VERIFIED**：無正向可預約與成交證據 | **已支援（僅離線，待實機驗證）** |
-| P01、P02、P04 等其他房號、其他空間類別 | 無 | 未盤點 | **未支援**（見下方「新增房型」） |
+| 縫紉機01–08、刺繡機01（9 台設備，2026-11-04 實機盤點） | 與 P03 共用 `hourly_slot` 的完整走查與負向矩陣 | **NOT_VERIFIED**：只看到房型方塊與縫紉機01 的 11 個時段 | **草稿（僅離線）**：需明確確認才可送出，詳見 [NCL_SCHEDULER_CONSOLE.md](NCL_SCHEDULER_CONSOLE.md) |
+| 其他房號、其他空間類別 | 無 | 未盤點 | **未支援**（見下方「新增房型」） |
 
 待實機驗證（目前一律視為 NOT_VERIFIED，不假裝通過）：
 
@@ -114,8 +115,9 @@ python -m unittest discover -s tests -p "test_ncl_openlab_*.py"
 python tests/run_ncl_offline_report.py        # 逐項 PASS／FAIL／NOT_VERIFIED 報告
 ```
 
-目前 251 項離線測試通過（原 162 項保留；8 項原本綁定舊原始碼字串，已改寫為檢查 profile 欄位；
-新增 89 項）。略過的測試在報告中記為 `NOT_VERIFIED`，不算通過。
+原 162 項保留（8 項原本綁定舊原始碼字串，已改寫為檢查 profile 欄位）；
+完整測試數量與排程、前端、跨平台測試見 [NCL_SCHEDULER_CONSOLE.md](NCL_SCHEDULER_CONSOLE.md)。
+略過的測試在報告中記為 `NOT_VERIFIED`，不算通過。
 
 | 測試檔 | 內容 |
 |---|---|

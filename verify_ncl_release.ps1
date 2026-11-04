@@ -25,6 +25,9 @@ $sourceFiles = @(
     'src\ncl_openlab_rooms.py',
     'src\ncl_openlab_diag.py',
     'src\ncl_openlab_inventory.py',
+    'src\ncl_openlab_schedule.py',
+    'src\ncl_openlab_browser.py',
+    'src\ncl_openlab_control.py',
     'src\ncl_browser_lifecycle_smoke.py'
 )
 & $python -m py_compile @sourceFiles

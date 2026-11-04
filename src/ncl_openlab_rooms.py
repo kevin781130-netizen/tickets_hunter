@@ -54,7 +54,7 @@ class RoomProfile:
     key: str
     label: str
     ui_label: str
-    entry_label: str
+    entry_label: object  # str, or None when the lobby category is unknown
     flow: FlowSpec
     tile_kind: str
     tile_value: str
@@ -190,9 +190,19 @@ def _parse_flow(name, raw):
     )
 
 
-def _parse_room(key, raw, flows):
-    _require(KEY_RE.match(str(key)), f"room key {key!r} is invalid")
+def _expand(key, raw, templates):
+    """Apply ``extends``: template fields first, the room's own fields win."""
     _require(isinstance(raw, dict), f"room {key} must be an object")
+    name = raw.get("extends")
+    if name is None:
+        return raw
+    _require(name in templates, f"room {key}.extends {name!r} is not a defined template")
+    return {**templates[name], **{k: v for k, v in raw.items() if k != "extends"}}
+
+
+def _parse_room(key, raw, flows, templates=None):
+    _require(KEY_RE.match(str(key)), f"room key {key!r} is invalid")
+    raw = _expand(key, raw, templates or {})
     where = f"room {key}"
     flow_name = raw.get("flow")
     _require(flow_name in flows, f"{where}.flow {flow_name!r} is not a defined flow")
@@ -216,7 +226,10 @@ def _parse_room(key, raw, flows):
         key=key,
         label=_text(raw.get("label"), f"{where}.label", 40),
         ui_label=_text(raw.get("ui_label"), f"{where}.ui_label", 60),
-        entry_label=_text(raw.get("entry_label"), f"{where}.entry_label", 40),
+        # null = the status-page category is unknown: the user opens the date
+        # grid by hand and the engine never guesses a lobby tile.
+        entry_label=(None if ("entry_label" in raw and raw["entry_label"] is None)
+                     else _text(raw.get("entry_label"), f"{where}.entry_label", 40)),
         flow=flows[flow_name],
         tile_kind=tile["kind"],
         tile_value=tile_value,
@@ -255,7 +268,10 @@ def parse_config(data):
     signatures = [flow.signature for flow in flows.values()]
     _require(len(set(signatures)) == len(signatures),
              "two flows have identical behaviour; merge them")
-    rooms = {key: _parse_room(key, raw, flows) for key, raw in raw_rooms.items()}
+    templates = data.get("templates", {})
+    _require(isinstance(templates, dict) and all(isinstance(t, dict) for t in templates.values()),
+             "templates must be an object of objects")
+    rooms = {key: _parse_room(key, raw, flows, templates) for key, raw in raw_rooms.items()}
     # A tile matcher must identify exactly one room. Otherwise the engine could
     # click the neighbouring room, which is the costliest failure mode.
     for key, profile in rooms.items():

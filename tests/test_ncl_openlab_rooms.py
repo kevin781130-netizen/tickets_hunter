@@ -25,20 +25,22 @@ def mutated(fn):
 class DefaultConfigTests(unittest.TestCase):
     def test_default_config_loads_and_lists_known_rooms(self):
         registry = rooms.load_config()
-        self.assertEqual(registry.keys, ("music", "p03"))
+        self.assertEqual(registry.keys[:2], ("music", "p03"))
+        self.assertEqual(len(registry.keys), 11)
 
     def test_legacy_constants_are_preserved(self):
         registry = rooms.get_registry()
         self.assertEqual(registry.room("music").slots, VALID_SLOTS)
         self.assertEqual(registry.room("music").entry_label, ROOM)
-        self.assertEqual(app.ROOM_MODES, ("music", "p03"))
+        self.assertEqual(app.ROOM_MODES[:2], ("music", "p03"))
         self.assertEqual(app.P03_SLOTS,
                          tuple(f"{h:02d}:00-{h + 1:02d}:00" for h in range(9, 20)))
 
     def test_flows_group_rooms(self):
         grouped = rooms.get_registry().by_flow()
         self.assertEqual([p.key for p in grouped["block_slot"]], ["music"])
-        self.assertEqual([p.key for p in grouped["hourly_slot"]], ["p03"])
+        self.assertEqual([p.key for p in grouped["hourly_slot"]][:2], ["p03", "sewing01"])
+        self.assertEqual(len(grouped["hourly_slot"]), 10)
 
     def test_each_tile_matcher_selects_only_its_own_room(self):
         registry = rooms.get_registry()

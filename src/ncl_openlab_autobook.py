@@ -13,12 +13,21 @@ import argparse
 import asyncio
 import contextvars
 import json
-from datetime import date, datetime, time, timedelta
+import os
+import sys
+from datetime import date, datetime
 from urllib.parse import urlsplit
 
+from ncl_openlab_browser import cleanup_browser, start_browser
+from ncl_openlab_control import CancelWatcher, LOCK_PATH, RunLock, RunLockBusy, encode_event
 from ncl_openlab_guard import NCL_HOST
 from ncl_openlab_probe import NCL_URL, TAIPEI_TZ
 from ncl_openlab_rooms import get_registry
+from ncl_openlab_schedule import (
+    LATE_GRACE_SECONDS, MAX_CUSTOM_WAIT_SECONDS, ScheduleCancelled, ScheduleMissed,
+    SystemClock, Timeline, check_run_at, format_countdown, measure_clock_offset,
+    parse_run_at, release_run_at,
+)
 
 # Fixed, exact labels and site selectors. Never click unknown elements.
 PHASES = ("date", "room", "slot", "next", "submit", "success")
@@ -28,6 +37,14 @@ DEFAULT_ROOM = "music"
 # Kept for compatibility with the picker GUI and existing callers.
 P03_SLOTS = _REGISTRY.room("p03").slots
 _TRACE = contextvars.ContextVar("ncl_trace", default=None)
+_MACHINE = contextvars.ContextVar("ncl_machine", default=False)
+
+
+def _emit(state, **fields):
+    """State line for the GUI supervisor. Silent unless --machine-status is on."""
+    if _MACHINE.get():
+        # Leading newline: input() prompts have none, which would glue this onto them.
+        print("\n" + encode_event(state, **fields), flush=True)
 
 
 def _note(label, code):
@@ -221,11 +238,10 @@ def parse_p03_priorities(raw):
 
 
 def release_time(day):
-    if not isinstance(day, date) or isinstance(day, datetime):
-        raise ValueError("invalid target day")
     # Seven days before target. 00:00 is a user-observed timing assumption,
-    # not a confirmed NCL time-of-day guarantee.
-    return datetime.combine(day - timedelta(days=7), time.min, tzinfo=TAIPEI_TZ)
+    # not a confirmed NCL time-of-day guarantee. It is only the DEFAULT start;
+    # any other start time goes through --run-at and the same Timeline.
+    return release_run_at(day)
 
 
 def seconds_until_release(day, now=None):
@@ -250,6 +266,8 @@ ENTRY_JS = r"""(() => {
   // Live NCL flow: the multimedia status overview is NOT the booking date grid.
   // Clicking the exact room category opens /NLT/co/media_discussion.jsp (7 dates).
   if (location.pathname === "/NLT/co/multimedia.jsp") {
+    // Rooms whose status-page category is unknown must be opened by hand.
+    if (roomName === null) return "ENTRY_MANUAL_REQUIRED";
     const labels = Array.from(document.querySelectorAll(".lab-item .lab-name[data-zh]"))
       .filter(el => visible(el) && el.getAttribute("data-zh") === roomName);
     if (labels.length !== 1) return "STATUS_ROOM_NOT_UNIQUE";
@@ -486,32 +504,54 @@ async def book_one_target(tab, day, priorities, *, auto_submit, mode="music", fa
 
 async def refresh_booking_grid(tab, *, mode, accept_terms):
     """One official-page refresh; never submit anything or bypass terms."""
-    await tab.reload(ignore_cache=False)
-    await tab.wait_for_ready_state(until="interactive", timeout=10)
+    try:
+        await tab.reload(ignore_cache=False)
+        await tab.wait_for_ready_state(until="interactive", timeout=10)
+    except Exception as exc:
+        # Network loss or a dead tab: report it, never turn it into a submit.
+        return "REFRESH_FAILED_" + type(exc).__name__
     return await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
 
 
 async def wait_until_release(tab, day, *, mode, accept_terms,
-                             pre_refresh_seconds=PRE_REFRESH_SECONDS):
-    """T-10 warmup once, then a mandatory T=00:00 release refresh."""
-    remaining = seconds_until_release(day)
-    if not 0 <= remaining <= 900:
-        return "RELEASE_OUTSIDE_15_MINUTE_WINDOW"
-    if pre_refresh_seconds and remaining >= pre_refresh_seconds:
-        await asyncio.sleep(max(0, remaining - pre_refresh_seconds))
-        if seconds_until_release(day) > 0:
-            print("開放前 10 秒預刷新一次（不嘗試預約）。")
-            status = await refresh_booking_grid(
-                tab, mode=mode, accept_terms=accept_terms)
-            if status != "GRID_READY":
-                return "PRE_REFRESH_BLOCKED_" + status
-    elif pre_refresh_seconds:
-        print("不足 10 秒，略過預刷新，保留準點正式刷新。")
+                             pre_refresh_seconds=PRE_REFRESH_SECONDS,
+                             timeline=None, max_wait_seconds=900):
+    """T-10 warm-up once, then a mandatory refresh exactly at the start time.
 
-    remaining = seconds_until_release(day)
-    if remaining > 0:
-        await asyncio.sleep(remaining)
-    print("台北時間 00:00：正式刷新，檢查日期及時段。")
+    One algorithm for every start time. Without a ``timeline`` the start time is
+    the default release moment (target - 7 days, 00:00) and the wait window is
+    15 minutes; with a Timeline (--run-at) the same steps run against that time.
+    """
+    remaining_now = timeline.remaining if timeline else (lambda: seconds_until_release(day))
+    pause = timeline.sleep if timeline else asyncio.sleep
+    try:
+        remaining = remaining_now()
+        if timeline is None:
+            if not 0 <= remaining <= max_wait_seconds:
+                return "RELEASE_OUTSIDE_15_MINUTE_WINDOW"
+        elif remaining < -timeline.grace:
+            return "RUN_AT_MISSED"
+        elif remaining > max_wait_seconds:
+            return "RUN_AT_TOO_FAR"
+        if pre_refresh_seconds and remaining >= pre_refresh_seconds:
+            await pause(max(0, remaining - pre_refresh_seconds))
+            if remaining_now() > 0:
+                print("預定時間前 10 秒預刷新一次（不嘗試預約）。")
+                status = await refresh_booking_grid(
+                    tab, mode=mode, accept_terms=accept_terms)
+                if status != "GRID_READY":
+                    return "PRE_REFRESH_BLOCKED_" + status
+        elif pre_refresh_seconds:
+            print("不足 10 秒，略過預刷新，保留準點正式刷新。")
+
+        remaining = remaining_now()
+        if remaining > 0:
+            await pause(remaining)
+    except ScheduleMissed:
+        return "RUN_AT_MISSED"
+    except ScheduleCancelled:
+        return "CANCELLED_BEFORE_START"
+    print("預定時間到：正式刷新，檢查日期及時段。")
     status = await refresh_booking_grid(tab, mode=mode, accept_terms=accept_terms)
     return status if status == "GRID_READY" else "RELEASE_REFRESH_BLOCKED_" + status
 
@@ -591,33 +631,82 @@ async def run_dry_run(tab, day, priorities, mode):
     return "DRY_RUN_COMPLETE", snapshots
 
 
+def preflight(day, priorities, *, mode, auto_submit, dry_run, reserve_two):
+    """Re-verify everything the engine is about to act on. None means all good."""
+    try:
+        room_profile(mode)
+        for slot in priorities:
+            action_script("slot", day, slot, mode)
+    except ValueError:
+        return "PREFLIGHT_TARGET_INVALID"
+    if len(set(priorities)) != len(priorities) or not 1 <= len(priorities) <= len(
+            room_profile(mode).slots):
+        return "PREFLIGHT_TARGET_INVALID"
+    if reserve_two and (len(priorities) != 2 or not auto_submit):
+        return "INVALID_TWO_BOOKING_CONFIGURATION"
+    if dry_run and auto_submit:
+        return "INVALID_DRY_RUN_WITH_AUTO_SUBMIT"
+    return None
+
+
 async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
                  accept_terms, reserve_two, retry_interval, retry_window,
-                 dry_run, extras):
-    """The booking state machine itself (unchanged logic, shared by all rooms)."""
+                 dry_run, extras, run_at=None, clock=None, machine=False,
+                 late_grace_seconds=LATE_GRACE_SECONDS):
+    """The booking state machine itself (shared by every room and start time)."""
+    _emit("LOGIN")
     print("在此瀏覽器手動登入並開啟多媒體創意實驗中心的日期選擇畫面。")
-    await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
+    answer = await asyncio.to_thread(input, "登入及進入頁面後按 Enter 啟動單次自動預約：")
+    if str(answer).strip().upper() == "CANCEL":
+        return "CANCELLED_BEFORE_START"
     status = await ensure_date_grid(tab, accept_terms=accept_terms, mode=mode)
     if status == "AGREEMENT_REQUIRED":
         print("請親自閱讀並點選「同意 Agree」，返回日期頁後再按 Enter。")
-        await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+        answer = await asyncio.to_thread(input, "已同意並進入日期頁後按 Enter：")
+        if str(answer).strip().upper() == "CANCEL":
+            return "CANCELLED_BEFORE_START"
         status = await ensure_date_grid(tab, accept_terms=False, mode=mode)
+    if status == "ENTRY_MANUAL_REQUIRED":
+        raise RuntimeError("DATE_GRID_NOT_READY_ENTRY_MANUAL_REQUIRED")
     if status != "GRID_READY":
         raise RuntimeError("DATE_GRID_NOT_READY_" + str(status))
+    problem = preflight(day, priorities, mode=mode, auto_submit=auto_submit,
+                        dry_run=dry_run, reserve_two=reserve_two)
+    if problem:
+        return problem
     if dry_run:
+        _emit("RUNNING")
         outcome, extras["diagnosis"] = await run_dry_run(tab, day, priorities, mode)
         return outcome
     if not now_mode:
+        watcher = CancelWatcher().start() if machine else None
+        timeline = None
+        if run_at is not None:
+            timeline = Timeline(
+                run_at, clock, grace=late_grace_seconds,
+                cancelled=(watcher.is_set if watcher else None),
+                on_event=lambda kind, detail: print(f"時間事件 {kind}: {detail}"))
+            problem = check_run_at(run_at, timeline.clock.now(), day,
+                                   max_wait_seconds=MAX_CUSTOM_WAIT_SECONDS,
+                                   grace=late_grace_seconds)
+            if problem:
+                return problem
+            print(f"待命：{run_at:%Y-%m-%d %H:%M:%S}（台北）開始預約，"
+                  f"剩 {format_countdown(timeline.remaining())}。")
+            _emit("STANDBY", run_at=run_at.isoformat(),
+                  clock_offset=getattr(timeline.clock, "offset_seconds", 0.0))
+        else:
+            _emit("STANDBY", run_at=release_time(day).isoformat(), clock_offset=0.0)
         status = await wait_until_release(
-            tab, day, mode=mode, accept_terms=accept_terms)
+            tab, day, mode=mode, accept_terms=accept_terms, timeline=timeline,
+            max_wait_seconds=(MAX_CUSTOM_WAIT_SECONDS if timeline else 900))
         if status != "GRID_READY":
             return status
+    _emit("RUNNING")
 
     if reserve_two:
         # Sequential 2 bookings, not a polling loop. Do not move on until
         # the previous submission is verified on the real success screen.
-        if mode not in ROOM_MODES or len(priorities) != 2 or not auto_submit:
-            return "INVALID_TWO_BOOKING_CONFIGURATION"
         for index, slot in enumerate(priorities):
             if index > 0:
                 tab = await tab.get(NCL_URL)
@@ -646,7 +735,7 @@ async def _drive(tab, day, priorities, *, auto_submit, now_mode, mode,
 
 
 async def _write_run_report(tab, *, report_dir, screenshot, day, mode,
-                            priorities, outcome, trace, flags, extras):
+                            priorities, outcome, trace, flags, extras, schedule):
     """Best effort. A reporting problem must never alter or repeat a booking."""
     try:
         from ncl_openlab_diag import build_report, capture_screenshot, write_report
@@ -658,7 +747,8 @@ async def _write_run_report(tab, *, report_dir, screenshot, day, mode,
             shot = await capture_screenshot(tab, report_dir, stem)
         report = build_report(day=day, mode=mode, priorities=priorities,
                               outcome=outcome, trace=trace, flags=flags,
-                              diagnosis=extras.get("diagnosis"), screenshot=shot)
+                              diagnosis=extras.get("diagnosis"), screenshot=shot,
+                              schedule=schedule)
         path = write_report(report_dir, report, stem=stem)
         print(f"診斷報告已寫入：{path}")
     except Exception as exc:
@@ -669,12 +759,16 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
                    mode="music", accept_terms=False, reserve_two=False,
                    retry_interval=RETRY_INTERVAL_SECONDS,
                    retry_window=RETRY_WINDOW_SECONDS,
-                   dry_run=False, report_dir=None, screenshot=False):
+                   dry_run=False, report_dir=None, screenshot=False,
+                   run_at=None, clock=None, machine=False, run_lock=None,
+                   late_grace_seconds=LATE_GRACE_SECONDS):
     import zendriver as uc
 
     if dry_run and auto_submit:
         return "INVALID_DRY_RUN_WITH_AUTO_SUBMIT"
-    browser = await uc.start(headless=False)
+    machine_token = _MACHINE.set(bool(machine))
+    _emit("LAUNCHING")
+    browser = await start_browser(uc)
     trace, extras, tab = [], {}, None
     token = _TRACE.set(trace)
     outcome = "ABORTED_BEFORE_RESULT"
@@ -684,25 +778,39 @@ async def autobook(day, priorities, *, auto_submit, now_mode=False,
             tab, day, priorities, auto_submit=auto_submit, now_mode=now_mode,
             mode=mode, accept_terms=accept_terms, reserve_two=reserve_two,
             retry_interval=retry_interval, retry_window=retry_window,
-            dry_run=dry_run, extras=extras)
+            dry_run=dry_run, extras=extras, run_at=run_at, clock=clock,
+            machine=machine, late_grace_seconds=late_grace_seconds)
         return outcome
     except BaseException as exc:
         outcome = "EXCEPTION_" + type(exc).__name__
         raise
     finally:
         _TRACE.reset(token)
+        # The booking is over: free the one-at-a-time lock, then tell the GUI.
+        if run_lock is not None:
+            run_lock.release()
+        _emit("DONE", outcome=outcome)
         if report_dir:
             await _write_run_report(
                 tab, report_dir=report_dir, screenshot=screenshot, day=day,
                 mode=mode, priorities=priorities, outcome=outcome, trace=trace,
                 flags={"auto_submit": auto_submit, "now": now_mode,
                        "reserve_two": reserve_two, "dry_run": dry_run},
-                extras=extras)
-        # The actual reservation result stays visible for user inspection.
-        # Only the user closes Chrome. Do not call browser.stop() or ask for
-        # Enter (which previously ended the controller and closed Chromium).
-        print("預約流程已結束；結果頁保留。請自行關閉瀏覽器，無需按 Enter。")
-        await wait_until_browser_manually_closed(browser)
+                extras=extras,
+                schedule={"run_at": run_at.isoformat() if run_at else None,
+                          "clock_offset_seconds": getattr(clock, "offset_seconds", 0.0)})
+        _MACHINE.reset(machine_token)
+        if outcome == "CANCELLED_BEFORE_START":
+            print("已取消排程，關閉瀏覽器。")
+        else:
+            # The actual reservation result stays visible for user inspection.
+            # Only the user closes Chrome. Do not call browser.stop() or ask for
+            # Enter (which previously ended the controller and closed Chromium).
+            print("預約流程已結束；結果頁保留。請自行關閉瀏覽器，無需按 Enter。")
+            await wait_until_browser_manually_closed(browser)
+        # Window closed by the user (or cancelled): stop the lingering Chrome
+        # process (macOS keeps it alive) and delete its throwaway profile.
+        await cleanup_browser(browser)
 
 
 def build_parser():
@@ -718,8 +826,16 @@ def build_parser():
     target.add_argument("--slot", default=None, help="P03 唯一的一小時測試時段")
     parser.add_argument("--auto-submit", action="store_true",
                         help="明確允許程式在核對日期、房間、時段後點一次最終「預約」")
-    parser.add_argument("--now", action="store_true",
+    timing = parser.add_mutually_exclusive_group()
+    timing.add_argument("--now", action="store_true",
                         help="立刻執行，不等預設的 7 日前台北 00:00")
+    timing.add_argument("--run-at", default=None, metavar="ISO8601",
+                        help="自訂開始預約時間（台北時間），例如 2026-11-05T00:00:00+08:00；"
+                             "未含時區視為台北時間。未指定時維持目標日前 7 日 00:00 的預設")
+    parser.add_argument("--clock-offset", type=float, default=0.0, metavar="SEC",
+                        help="手動校正：網路時間減系統時間的秒數（±600 內）")
+    parser.add_argument("--sync-clock", action="store_true",
+                        help="啟動前以 NTP 量測系統時間誤差並自動校正排程（失敗不影響執行）")
     parser.add_argument("--accept-terms", action="store_true",
                         help="本人已閱讀同意 OPEN LAB 條款，允許在入口點一次「同意 Agree」")
     parser.add_argument("--reserve-two", action="store_true",
@@ -739,6 +855,8 @@ def build_parser():
                         help="結束時另存目前頁面截圖（可能含個人資料，僅存本機，需搭配報告）")
     parser.add_argument("--ack-room-unverified", action="store_true",
                         help="確認接受此房型尚未實機驗證的風險（新增房型設定要求時才需要）")
+    parser.add_argument("--machine-status", action="store_true",
+                        help="供前端使用：輸出 @@NCL 狀態行，並在待命時接受 stdin 的 CANCEL")
     return parser
 
 
@@ -757,9 +875,69 @@ def resolve_priorities(parser, args):
         parser.error(str(exc))
 
 
+RUN_AT_MESSAGES = {
+    "RUN_AT_ALREADY_PASSED": "自訂開始時間已經過了",
+    "RUN_AT_TOO_FAR": "自訂開始時間超過 24 小時，請改在較近的時間啟動",
+    "RUN_AT_AFTER_TARGET_DAY": "自訂開始時間晚於預約日，沒有意義",
+    "RUN_AT_INVALID": "自訂開始時間無法解讀",
+}
+
+
+def resolve_schedule(parser, args):
+    """(run_at, clock) from --run-at / --clock-offset / --sync-clock."""
+    offset = args.clock_offset
+    if args.sync_clock:
+        if args.clock_offset:
+            parser.error("--sync-clock 與 --clock-offset 擇一")
+        measured, note = measure_clock_offset()
+        print(note)
+        offset = measured or 0.0
+    try:
+        clock = SystemClock(offset)
+    except ValueError:
+        parser.error("--clock-offset 必須在 ±600 秒內")
+    run_at = None
+    if args.run_at is not None:
+        if args.dry_run:
+            parser.error("--dry-run 不排程，請拿掉 --run-at")
+        try:
+            run_at = parse_run_at(args.run_at)
+        except ValueError as exc:
+            parser.error(str(exc))
+        problem = check_run_at(run_at, clock.now(), args.date,
+                               max_wait_seconds=MAX_CUSTOM_WAIT_SECONDS)
+        if problem:
+            parser.error(RUN_AT_MESSAGES[problem] + f"（{problem}）")
+    return run_at, clock
+
+
+class _TolerantStream:
+    """stdout that survives a vanished GUI: a booking must never die on print()."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def write(self, text):
+        try:
+            return self._inner.write(text)
+        except (OSError, ValueError):
+            return len(text)
+
+    def flush(self):
+        try:
+            self._inner.flush()
+        except (OSError, ValueError):
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
+    if args.machine_status:
+        sys.stdout = _TolerantStream(sys.stdout)
     if not (3 <= args.retry_interval <= 30 and 0 <= args.retry_window <= 180):
         parser.error("重試間隔須為3–30秒，重試時間須為0–180秒")
     profile = room_profile(args.room)
@@ -772,6 +950,7 @@ def main():
         parser.error("--screenshot 需搭配 --report-dir 或 --dry-run")
     if args.auto_submit and profile.submit_requires_ack and not args.ack_room_unverified:
         parser.error(f"{profile.label} 尚未實機驗證，送出前須明確加上 --ack-room-unverified")
+    run_at, clock = resolve_schedule(parser, args)
     if args.reserve_two:
         if len(priorities) != 2:
             parser.error("--reserve-two 必須指定兩個不同的合法時段（music 或 P03）")
@@ -787,23 +966,36 @@ def main():
     elif not args.auto_submit:
         print("未指定 --auto-submit，程式只會走到最後確認頁。")
     if args.plan_only:
+        start = ("now" if args.now else (run_at or release_time(args.date)).isoformat())
         print(json.dumps({"plan": {
             "room": args.room, "flow": profile.flow.name, "date": args.date.isoformat(),
             "slots": list(priorities), "auto_submit": args.auto_submit,
-            "dry_run": args.dry_run, "now": args.now,
+            "dry_run": args.dry_run, "now": args.now, "start_at": start,
+            "custom_start": run_at is not None,
             "release_taipei": release_time(args.date).isoformat(),
+            "clock_offset_seconds": clock.offset_seconds,
             "live_evidence": profile.live}}, ensure_ascii=False))
         return
+    lock = RunLock(os.environ.get("NCL_LOCK_PATH") or LOCK_PATH)
+    try:
+        lock.acquire()
+    except RunLockBusy as exc:
+        parser.error(f"{exc}；同一時間只允許一個預約程序，避免重複送出")
     report_dir = args.report_dir or ("ncl_reports" if args.dry_run else None)
-    status = asyncio.run(autobook(args.date, priorities,
-                                  auto_submit=args.auto_submit,
-                                  now_mode=args.now, mode=args.room,
-                                  accept_terms=args.accept_terms,
-                                  reserve_two=args.reserve_two,
-                                  retry_interval=args.retry_interval,
-                                  retry_window=args.retry_window,
-                                  dry_run=args.dry_run, report_dir=report_dir,
-                                  screenshot=args.screenshot))
+    try:
+        status = asyncio.run(autobook(args.date, priorities,
+                                      auto_submit=args.auto_submit,
+                                      now_mode=args.now, mode=args.room,
+                                      accept_terms=args.accept_terms,
+                                      reserve_two=args.reserve_two,
+                                      retry_interval=args.retry_interval,
+                                      retry_window=args.retry_window,
+                                      dry_run=args.dry_run, report_dir=report_dir,
+                                      screenshot=args.screenshot, run_at=run_at,
+                                      clock=clock, machine=args.machine_status,
+                                      run_lock=lock))
+    finally:
+        lock.release()
     print(json.dumps({"result": status}, ensure_ascii=False))
 
 

@@ -81,7 +81,8 @@ class RoomMatrixTests(unittest.TestCase):
                 phase_steps(profile, ("date",)))
             add(f"{key}:no_next", base(next_button=False),
                 phase_steps(profile, ("date", "room", "slot", "next")))
-            for variant in ("wrong_room", "near_miss_room", "wrong_date_attr", "wrong_slot_attr",
+            for variant in ("wrong_room", "near_miss_room", "longer_code_room",
+                            "wrong_date_attr", "wrong_slot_attr",
                             "occluded", "missing_button", "duplicate_button"):
                 add(f"{key}:checkout_{variant}", base(checkout=variant),
                     phase_steps(profile, ("date", "room", "slot", "next", "submit")))
@@ -152,10 +153,14 @@ class RoomMatrixTests(unittest.TestCase):
             "missing_button": "SUBMIT_NOT_ACTIONABLE",
             "duplicate_button": "SUBMIT_NOT_ACTIONABLE",
         }
-        for key in REGISTRY.keys:
+        for key, profile in REGISTRY.rooms.items():
             for variant, code in expected.items():
                 self.assertEqual(self.codes(f"{key}:checkout_{variant}")[4], code,
                                  f"{key}/{variant}")
+            # '縫紉機010' / 'P030' must not pass for room 01 / P03 (rooms with a code only).
+            longer = fx.longer_code_label(profile.sample_tile_label) != profile.sample_tile_label
+            self.assertEqual(self.codes(f"{key}:checkout_longer_code_room")[4],
+                             "SUMMARY_MISMATCH" if longer else "READY_FOR_POINTER_CLICK", key)
 
     def test_submit_guard_is_one_shot(self):
         for key in REGISTRY.keys:
@@ -176,6 +181,12 @@ class RoomMatrixTests(unittest.TestCase):
 
     def test_lobby_entry_clicks_only_the_exact_room_label(self):
         for key, profile in REGISTRY.rooms.items():
+            if profile.entry_label is None:
+                # Unknown lobby category: never guess a tile, open it by hand.
+                for case in ("entry", "entry_dup"):
+                    self.assertEqual(self.codes(f"{key}:{case}"),
+                                     ["ENTRY_MANUAL_REQUIRED", None], key)
+                continue
             self.assertEqual(self.codes(f"{key}:entry"),
                              ["STATUS_ROOM_OPENED", profile.entry_label], key)
             self.assertEqual(self.codes(f"{key}:entry_dup"),

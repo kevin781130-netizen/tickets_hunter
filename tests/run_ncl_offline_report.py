@@ -30,12 +30,18 @@ TAIPEI = timezone(timedelta(hours=8))
 
 # Facts that offline tests cannot establish. Keep this list honest and current.
 LIVE_ONLY = (
-    ("music 音樂創作室", "正向可預約 DOM、最終「預約」按鈕與成功頁尚無實機證據"),
+    ("音樂創作室 music", "正向可預約 DOM、最終「預約」按鈕與成功頁尚無實機證據"),
+    ("縫紉機01–08、刺繡機01（9 台設備）", "已實機盤點房型方塊與縫紉機01 的 11 個時段；現況頁類別名、確認頁用字、"
+                                       "縫紉機02–08 與刺繡機01 的時段、實際成交皆未驗證（草稿，需明確勾選確認）"),
     ("同一天連續兩筆預約 (--reserve-two)", "僅離線模擬，尚無兩筆實際成交"),
-    ("午夜 T-10 / T=0 刷新與 3 秒重試", "離線測試通過；尚無自然午夜實機正向證據"),
-    ("新版 --dry-run / --screenshot / --report-dir 在真實 zendriver 上", "只以假瀏覽器驗證；save_screenshot 未對真站執行"),
-    ("ncl_openlab_inventory.py 在已登入的真實網站上", "只以合成頁面驗證；尚未實際盤點任何新房型"),
-    ("P03 以外的房號 (P01、P02、P04...) 與其他空間類別", "未盤點、未設定，因此視為不支援"),
+    ("午夜／自訂時間準點開始在真實 Chrome 與真站", "以假瀏覽器＋真實時鐘端對端驗證；真站未執行"),
+    ("macOS 實機：Tk 視窗、.command 啟動、Chrome 偵測、zendriver 啟動與結束清理", "NOT_RUN：無 Mac 可用；"
+                                       "只以模擬平台與讀原始碼找出的缺陷（管線未排空、視窗關閉後程序常駐）驗證"),
+    ("Windows 11 實機：.cmd 啟動、CREATE_NO_WINDOW、高 DPI 版面", "NOT_RUN：無 Windows 可用；只做模擬平台測試"),
+    ("電腦實際睡眠／喚醒、網路真實中斷、登入真實失效", "以 Fake Clock 與假瀏覽器模擬；未在真機觸發"),
+    ("--sync-clock 對公網 NTP 伺服器", "只對本機 UDP 伺服器與假 socket 驗證；公網未呼叫"),
+    ("--dry-run / --screenshot / --report-dir 在真實 zendriver 與真站上的行為", "只以假瀏覽器驗證"),
+    ("ncl_openlab_inventory.py 對縫紉機／刺繡機以外的類別", "尚未盤點，視為不支援"),
     ("網站目前 DOM 是否仍與記錄一致", "fixture 為合成頁面，不能取代實機檢查"),
 )
 

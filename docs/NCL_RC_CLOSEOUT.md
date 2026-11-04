@@ -50,7 +50,7 @@
 ## 多房型引擎
 
 房型差異已集中到 `src/ncl_openlab_rooms.json`，詳見
-[NCL_MULTI_ROOM.md](NCL_MULTI_ROOM.md)：支援矩陣、新增房型流程、
+[NCL_MULTI_ROOM.md](NCL_MULTI_ROOM.md) 與排程控制台 [NCL_SCHEDULER_CONSOLE.md](NCL_SCHEDULER_CONSOLE.md)：支援矩陣、新增房型流程、
 `--dry-run`／報告／截圖，以及尚待實機驗證的項目。P03 實機驗證範圍不變。
 
 ## 一次性本機離線 Gate
