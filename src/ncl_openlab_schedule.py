@@ -12,7 +12,9 @@ import asyncio
 import socket
 import struct
 import time
-from datetime import date, datetime, time as dtime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
+
+from reservation_common import release_datetime as shared_release_datetime
 
 TAIPEI_TZ = timezone(timedelta(hours=8))
 LATE_GRACE_SECONDS = 30.0   # starting this late is still acceptable
@@ -33,9 +35,7 @@ class ScheduleCancelled(Exception):
 
 def release_run_at(day):
     """Default start: seven days before the target day, 00:00:00 Taipei."""
-    if not isinstance(day, date) or isinstance(day, datetime):
-        raise ValueError("invalid target day")
-    return datetime.combine(day - timedelta(days=7), dtime.min, tzinfo=TAIPEI_TZ)
+    return shared_release_datetime(day, days_before=7, tz=TAIPEI_TZ)
 
 
 def parse_run_at(text):
