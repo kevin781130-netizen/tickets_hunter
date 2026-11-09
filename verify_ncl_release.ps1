@@ -43,6 +43,20 @@ Write-Host 'NCL RELEASE CHECK: offline report (skipped tests are NOT_VERIFIED, n
 & $python tests\run_ncl_offline_report.py --out-dir ncl_reports
 if ($LASTEXITCODE -ne 0) { throw 'NCL_OFFLINE_REPORT_FAILED' }
 
+# An incomplete environment may yield PASS_WITH_NOT_VERIFIED while the report
+# process exits 0. Do not allow this to masquerade as a full release gate PASS.
+$reportPath = Join-Path $PSScriptRoot 'ncl_reports\offline_test_report.json'
+if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+    throw 'NCL_OFFLINE_REPORT_MISSING'
+}
+$report = Get-Content -Raw -LiteralPath $reportPath | ConvertFrom-Json
+if ($report.overall -ne 'PASS') {
+    throw "NCL_RELEASE_GATE_INCOMPLETE: report overall=$($report.overall); skipped tests must be verified"
+}
+if ($report.browser_fixtures_available -ne $true) {
+    throw 'NCL_RELEASE_GATE_INCOMPLETE: Chromium test fixtures unavailable'
+}
+
 Write-Host 'NCL_RELEASE_GATE_PASS'
 Write-Host 'Branch: feat/ncl-openlab-booking. Main unchanged by this script.'
 Write-Host 'No live booking occurred. Open launch_ncl_picker.cmd separately to book.'
