@@ -4,17 +4,39 @@ This deliberately does not modify or invoke the existing NCL booking engine.
 """
 import sys
 import unittest
+from unittest.mock import patch
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from reservation_common import has_retry_budget, release_datetime, seconds_until
+import ncl_openlab_schedule as schedule
 
 
 class SharedPrimitivesContractTests(unittest.TestCase):
     def setUp(self):
         self.taipei = timezone(timedelta(hours=8))
+
+    def test_schedule_uses_shared_core_with_explicit_ncl_policy(self):
+        expected_day = date(2026, 11, 12)
+        sentinel = datetime(2026, 11, 5, tzinfo=self.taipei)
+        with patch.object(schedule, "shared_release_datetime", return_value=sentinel) as delegate:
+            self.assertIs(schedule.release_run_at(expected_day), sentinel)
+        delegate.assert_called_once_with(expected_day, days_before=7, tz=schedule.TAIPEI_TZ)
+
+    def test_schedule_parity_at_calendar_boundaries(self):
+        for target_day in (date(2026, 1, 1), date(2026, 12, 31),
+                           date(2028, 2, 29), date(2028, 3, 1)):
+            with self.subTest(target_day=target_day):
+                self.assertEqual(
+                    schedule.release_run_at(target_day),
+                    release_datetime(target_day, days_before=7, tz=schedule.TAIPEI_TZ),
+                )
+
+    def test_schedule_does_not_accept_datetime_in_place_of_booking_day(self):
+        with self.assertRaises(ValueError):
+            schedule.release_run_at(datetime(2026, 11, 12, tzinfo=self.taipei))
 
     def test_seven_day_release_midnight_taipei(self):
         actual = release_datetime(date(2026, 11, 12), days_before=7, tz=self.taipei)
